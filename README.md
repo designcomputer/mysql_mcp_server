@@ -3,6 +3,8 @@
 
 A Model Context Protocol (MCP) server that enables secure interaction with MySQL databases. This server allows AI assistants to list tables, read data, and execute SQL queries through a controlled interface, making database exploration and analysis safer and more structured.
 
+<a href="https://glama.ai/mcp/servers/vijdhok35p"><img width="380" height="200" src="https://glama.ai/mcp/servers/vijdhok35p/badge" alt="MySQL Server MCP server" /></a>
+
 ## Features
 
 - List available MySQL tables as resources
