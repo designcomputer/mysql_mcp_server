@@ -131,8 +131,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     result.extend([table[0] for table in tables])
                     return [TextContent(type="text", text="\n".join(result))]
                 
-                # Regular SELECT queries
-                elif query.strip().upper().startswith("SELECT"):
+                # Handle all other queries that return result sets (SELECT, SHOW, DESCRIBE etc.)
+                elif cursor.description:
                     columns = [desc[0] for desc in cursor.description]
                     rows = cursor.fetchall()
                     result = [",".join(map(str, row)) for row in rows]
