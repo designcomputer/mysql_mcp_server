@@ -7,11 +7,16 @@ from mcp.types import Resource, Tool, TextContent
 from pydantic import AnyUrl
 
 # Configure logging
+log_file_path = os.path.join(os.getcwd(), "mysql-mcp-server.log")
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file_path)
+    ]
 )
 logger = logging.getLogger("mysql_mcp_server")
+logger.info(f"Logging to file: {log_file_path}")
 
 def get_db_config():
     """Get database configuration from environment variables."""
@@ -133,6 +138,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 
                 # Regular SELECT queries
                 elif query.strip().upper().startswith("SELECT"):
+                    logger.info(f"Cursor Description: {cursor.description}")
                     columns = [desc[0] for desc in cursor.description]
                     rows = cursor.fetchall()
                     result = [",".join(map(str, row)) for row in rows]
