@@ -68,6 +68,30 @@ Add this to your `claude_desktop_config.json`:
 }
 ```
 
+or 
+```json
+{
+  "mcpServers": {
+    "mysql": {
+      "command": "python",
+      "args": [
+        "-m", 
+        "mysql_mcp_server"
+      ],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "your_username",
+        "MYSQL_PASSWORD": "your_password",
+        "MYSQL_DATABASE": "your_database"
+      }
+    }
+  }
+}
+
+```
+
+
 ### As a standalone server
 
 ```bash
