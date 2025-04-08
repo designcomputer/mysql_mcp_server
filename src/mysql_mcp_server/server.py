@@ -13,6 +13,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mysql_mcp_server")
 
+
 def get_db_config():
     """Get database configuration from environment variables."""
     config = {
@@ -30,11 +31,13 @@ def get_db_config():
         logger.error("Missing required database configuration. Please check environment variables:")
         logger.error("MYSQL_USER and MYSQL_DATABASE are required")
         raise ValueError("Missing required database configuration")
-    
+
     return config
+
 
 # Initialize server
 app = Server("mysql_mcp_server")
+
 
 @app.list_resources()
 async def list_resources() -> list[Resource]:
@@ -62,6 +65,7 @@ async def list_resources() -> list[Resource]:
         logger.error(f"Failed to list resources: {str(e)}")
         return []
 
+
 @app.read_resource()
 async def read_resource(uri: AnyUrl) -> str:
     """Read table contents."""
@@ -88,6 +92,7 @@ async def read_resource(uri: AnyUrl) -> str:
         logger.error(f"Database error reading resource {uri}: {str(e)}")
         raise RuntimeError(f"Database error: {str(e)}")
 
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """List available MySQL tools."""
@@ -108,6 +113,7 @@ async def list_tools() -> list[Tool]:
             }
         )
     ]
+
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
@@ -144,11 +150,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 # Non-SELECT queries
                 else:
                     conn.commit()
-                    return [TextContent(type="text", text=f"Query executed successfully. Rows affected: {cursor.rowcount}")]
+                    return [TextContent(
+                        type="text", text=f"Query executed successfully. Rows affected: {cursor.rowcount}"
+                    )]
 
     except Error as e:
         logger.error(f"Error executing SQL '{query}': {e}")
         return [TextContent(type="text", text=f"Error executing query: {str(e)}")]
+
 
 async def main():
     """Main entry point to run the MCP server."""
@@ -168,6 +177,7 @@ async def main():
         except Exception as e:
             logger.error(f"Server error: {str(e)}", exc_info=True)
             raise
+
 
 if __name__ == "__main__":
     asyncio.run(main())
