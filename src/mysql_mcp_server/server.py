@@ -21,7 +21,10 @@ def get_db_config():
         "port": int(os.getenv("MYSQL_PORT", "3306")),
         "user": os.getenv("MYSQL_USER"),
         "password": os.getenv("MYSQL_PASSWORD"),
-        "database": os.getenv("MYSQL_DATABASE")
+        "database": os.getenv("MYSQL_DATABASE"),
+        "charset": "utf8mb4",
+        "use_unicode": True,
+        "collation": "utf8mb4_general_ci"
     }
     
     if not all([config["user"], config["password"], config["database"]]):
