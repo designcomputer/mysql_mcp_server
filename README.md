@@ -81,6 +81,7 @@ Add this to your `mcp.json`:
         "MYSQL_PASSWORD": "your_password",
         "MYSQL_DATABASE": "your_database"
       }
+    }
   }
 }
 ```
