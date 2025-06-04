@@ -20,7 +20,7 @@ def get_db_config():
         "host": os.getenv("MYSQL_HOST", "localhost"),
         "port": int(os.getenv("MYSQL_PORT", "3306")),
         "user": os.getenv("MYSQL_USER"),
-        "password": os.getenv("MYSQL_PASSWORD"),
+        "password": os.getenv("MYSQL_PASSWORD", ""), # Empty string if not set
         "database": os.getenv("MYSQL_DATABASE"),
         # Add charset and collation to avoid utf8mb4_0900_ai_ci issues with older MySQL versions
         # These can be overridden via environment variables for specific MySQL versions
@@ -35,9 +35,9 @@ def get_db_config():
     # Remove None values to let MySQL connector use defaults if not specified
     config = {k: v for k, v in config.items() if v is not None}
 
-    if not all([config.get("user"), config.get("password"), config.get("database")]):
+    if not all([config.get("user"), config.get("database")]):
         logger.error("Missing required database configuration. Please check environment variables:")
-        logger.error("MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE are required")
+        logger.error("MYSQL_USER and MYSQL_DATABASE are required")
         raise ValueError("Missing required database configuration")
 
     return config
