@@ -36,6 +36,25 @@ MYSQL_PASSWORD=your_password
 MYSQL_DATABASE=your_database
 ```
 
+## Local Development with .env Files
+For local development, you can use a .env file instead of setting environment variables manually:
+
+Copy .env.example to .env:
+``` bash
+ cp .env.example .env
+
+# Edit .env with your database credentials:
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=your_username
+MYSQL_PASSWORD=your_password
+MYSQL_DATABASE=your_database
+```
+The server will automatically load these variables when starting
+
+
+Note: The .env file is for local development convenience. In production or when using Smithery, continue to use environment variables as documented above.
+
 ## Usage
 ### With Claude Desktop
 Add this to your `claude_desktop_config.json`:
