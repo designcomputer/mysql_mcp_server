@@ -1,5 +1,7 @@
 ![Tests](https://github.com/designcomputer/mysql_mcp_server/actions/workflows/test.yml/badge.svg)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/mysql-mcp-server)
+
+[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/designcomputer/mysql_mcp_server)](https://archestra.ai/mcp-catalog/designcomputer__mysql_mcp_server)
 [![smithery badge](https://smithery.ai/badge/mysql-mcp-server)](https://smithery.ai/server/mysql-mcp-server)
 [![MseeP.ai Security Assessment Badge](https://mseep.net/mseep-audited.png)](https://mseep.ai/app/designcomputer-mysql-mcp-server)
 # MySQL MCP Server
