@@ -29,8 +29,14 @@ def get_db_config():
         # Disable autocommit for better transaction control
         "autocommit": True,
         # Set SQL mode for better compatibility - can be overridden
-        "sql_mode": os.getenv("MYSQL_SQL_MODE", "TRADITIONAL")
+        "sql_mode": os.getenv("MYSQL_SQL_MODE", "TRADITIONAL"),
     }
+
+    # Add ssl_disabled option to config
+    # Default to False if not specified
+    ssl_disabled_env = os.getenv("MYSQL_SSL_DISABLED")
+    if ssl_disabled_env is not None:
+        config["ssl_disabled"] = ssl_disabled_env.strip().lower() in ("1", "true", "yes", "on")
 
     # Remove None values to let MySQL connector use defaults if not specified
     config = {k: v for k, v in config.items() if v is not None}
@@ -183,6 +189,7 @@ async def main():
     print(f"Port: {config['port']}", file=sys.stderr)
     print(f"User: {config['user']}", file=sys.stderr)
     print(f"Database: {config['database']}", file=sys.stderr)
+    print(f"SslDisabled: {config['ssl_disabled']}", file=sys.stderr)
 
     logger.info("Starting MySQL MCP server...")
     logger.info(f"Database config: {config['host']}/{config['database']} as {config['user']}")

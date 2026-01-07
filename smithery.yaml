@@ -10,6 +10,10 @@ startCommand:
       - mysqlPassword
       - mysqlDatabase
     properties:
+      mysqlSslDisabled:
+        type: boolean
+        description: "Disable SSL/TLS for MySQL connections."
+        default: false
       mysqlHost:
         type: string
         description: "The hostname of the MySQL server. Use localhost for local connections or a specific address for remote databases. For Docker, host.docker.internal allows accessing the host machine."
@@ -41,6 +45,7 @@ startCommand:
         '-e', `MYSQL_USER=${config.mysqlUser}`,
         '-e', `MYSQL_PASSWORD=${config.mysqlPassword}`,
         '-e', `MYSQL_DATABASE=${config.mysqlDatabase}`,
+        '-e', `MYSQL_SSL_DISABLED=${config.mysqlSslDisabled}`,
         'smithery/mysql-mcp-server:latest'
       ]
     })
