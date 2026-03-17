@@ -13,6 +13,9 @@ A Model Context Protocol (MCP) implementation that enables secure interaction wi
 - Execute SQL queries with proper error handling
 - Secure database access through environment variables
 - Comprehensive logging
+- SSL/TLS connection support
+- Multi-database mode (optional `MYSQL_DATABASE`)
+- SSE/HTTP transport support (`MCP_TRANSPORT=sse`)
 
 ## Installation
 ### Manual Installation
@@ -29,12 +32,49 @@ npx -y @smithery/cli install mysql-mcp-server --client claude
 ## Configuration
 Set the following environment variables:
 ```bash
-MYSQL_HOST=localhost     # Database host
-MYSQL_PORT=3306         # Optional: Database port (defaults to 3306 if not specified)
-MYSQL_USER=your_username
-MYSQL_PASSWORD=your_password
-MYSQL_DATABASE=your_database
+MYSQL_HOST=localhost        # Database host (default: localhost)
+MYSQL_PORT=3306             # Optional: Database port (default: 3306)
+MYSQL_USER=your_username    # Required
+MYSQL_PASSWORD=your_password  # Required (can be empty string for no password)
+MYSQL_DATABASE=your_database  # Optional: Default database (omit for multi-database mode)
+MYSQL_CHARSET=utf8mb4       # Optional: Character set (default: utf8mb4)
+MYSQL_COLLATION=utf8mb4_unicode_ci  # Optional: Collation (default: utf8mb4_unicode_ci)
+MYSQL_SSL_MODE=DISABLED     # Optional: SSL mode (DISABLED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY)
+MYSQL_CONNECT_TIMEOUT=10    # Optional: Connection timeout in seconds (default: 10)
+MCP_TRANSPORT=stdio         # Optional: Transport mode (stdio [default] or sse)
+MCP_SSE_HOST=127.0.0.1      # Optional: SSE server host (default: 127.0.0.1, only used with MCP_TRANSPORT=sse)
+MCP_SSE_PORT=8000           # Optional: SSE server port (default: 8000, only used with MCP_TRANSPORT=sse)
 ```
+
+### Multi-Database Mode
+When `MYSQL_DATABASE` is not set, the server operates in multi-database mode:
+- `list_resources` returns all user databases (system databases are filtered out)
+- Use `USE <database>` in SQL queries to select a database
+- Use fully qualified table names like `mydb.mytable`
+
+```json
+"env": {
+  "MYSQL_HOST": "localhost",
+  "MYSQL_USER": "your_username",
+  "MYSQL_PASSWORD": "your_password"
+}
+```
+
+### SSE/HTTP Transport
+To run the server as an HTTP/SSE server (useful for private deployments or agent frameworks):
+
+```bash
+pip install "mysql-mcp-server[sse]"
+MCP_TRANSPORT=sse mysql_mcp_server
+```
+
+Or in Docker:
+```bash
+docker run -e MCP_TRANSPORT=sse -e MCP_SSE_HOST=0.0.0.0 -e MCP_SSE_PORT=8000 \
+  -e MYSQL_USER=... -e MYSQL_PASSWORD=... mysql-mcp-server
+```
+
+> **Security note:** The SSE server binds to `127.0.0.1` by default. Only expose to `0.0.0.0` in trusted network environments.
 
 ## Usage
 ### With Claude Desktop
@@ -43,11 +83,10 @@ Add this to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "mysql": {
-      "command": "uv",
+      "command": "uvx",
       "args": [
-        "--directory",
-        "path/to/mysql_mcp_server",
-        "run",
+        "--from",
+        "mysql-mcp-server",
         "mysql_mcp_server"
       ],
       "env": {
@@ -67,14 +106,14 @@ Add this to your `mcp.json`:
 ```json
 {
   "servers": {
-      "mysql": {
-            "type": "stdio",
-            "command": "uvx",
-            "args": [
-                "--from",
-                "mysql-mcp-server",
-                "mysql_mcp_server"
-            ],
+    "mysql": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mysql-mcp-server",
+        "mysql_mcp_server"
+      ],
       "env": {
         "MYSQL_HOST": "localhost",
         "MYSQL_PORT": "3306",
@@ -86,7 +125,25 @@ Add this to your `mcp.json`:
   }
 }
 ```
-Note: Will need to install uv for this to work
+Note: Will need to install [uv](https://docs.astral.sh/uv/) for this to work.
+
+### SSL Connection Issues
+If you encounter SSL-related errors (e.g., `error:0A000102:SSL routines::unsupported protocol`), you can disable SSL:
+```json
+"env": {
+  "MYSQL_SSL_MODE": "DISABLED",
+  ...
+}
+```
+
+### Empty Password
+If your MySQL installation uses no password, set `MYSQL_PASSWORD` to an empty string:
+```json
+"env": {
+  "MYSQL_PASSWORD": "",
+  ...
+}
+```
 
 ### Debugging with MCP Inspector
 While MySQL MCP Server isn't intended to be run standalone or directly from the command line with Python, you can use the MCP Inspector to debug it.
@@ -120,6 +177,7 @@ pytest
 - Use a database user with minimal required permissions
 - Consider implementing query whitelisting for production use
 - Monitor and log all database operations
+- Do not expose `MYSQL_PASSWORD` as a Docker `ENV` instruction — pass it at runtime
 
 ## Security Best Practices
 This MCP implementation requires database access to function. For security:
