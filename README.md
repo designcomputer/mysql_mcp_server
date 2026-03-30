@@ -7,6 +7,10 @@ A Model Context Protocol (MCP) implementation that enables secure interaction wi
 
 > **Note**: MySQL MCP Server is not designed to be used as a standalone server, but rather as a communication protocol implementation between AI applications and MySQL databases.
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/designcomputer-mysql-mcp-server).
+
 ## Features
 - List available MySQL tables as resources
 - Read table contents
