@@ -37,6 +37,8 @@ def get_db_config():
     ssl_disabled_env = os.getenv("MYSQL_SSL_DISABLED")
     if ssl_disabled_env is not None:
         config["ssl_disabled"] = ssl_disabled_env.strip().lower() in ("1", "true", "yes", "on")
+    else:
+        config["ssl_disabled"] = False
 
     # Remove None values to let MySQL connector use defaults if not specified
     config = {k: v for k, v in config.items() if v is not None}
