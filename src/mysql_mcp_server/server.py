@@ -182,7 +182,7 @@ async def list_resources() -> list[Resource]:
                             return [
                                 Resource(
                                     uri=f"mysql://database/{db[0]}",
-                                    name=f"Database: {db[0]}",
+                                    name=f"database_{db[0]}",
                                     mimeType="text/plain",
                                     description=f"MySQL database: {db[0]}"
                                 )
@@ -197,7 +197,7 @@ async def list_resources() -> list[Resource]:
                                 resources.append(
                                     Resource(
                                         uri=f"mysql://{table[0]}/data",
-                                        name=f"Table: {table[0]}",
+                                        name=f"table_{table[0]}",
                                         mimeType="text/plain",
                                         description=f"Data in table: {table[0]}"
                                     )
