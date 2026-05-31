@@ -15,7 +15,7 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_ROOT_PASSWORD: ci_test_password_only
           MYSQL_DATABASE: test_db
         ports:
           - 3306:3306
@@ -55,7 +55,7 @@ jobs:
       env:
         MYSQL_HOST: 127.0.0.1
         MYSQL_USER: root
-        MYSQL_PASSWORD: testpassword
+        MYSQL_PASSWORD: ci_test_password_only
         MYSQL_DATABASE: test_db
       run: |
         python -m pytest -v

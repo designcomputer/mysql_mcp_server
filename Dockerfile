@@ -25,10 +25,6 @@ USER appuser
 # or use Docker secrets / environment files.
 ENV MYSQL_HOST=host.docker.internal
 ENV MYSQL_PORT=3306
-ENV MYSQL_USER=your_username
-ENV MYSQL_PASSWORD=your_password
-ENV MYSQL_DATABASE=your_database
-ENV PYTHONPATH=/app/src
 
 # Command to run the server
 CMD ["python", "-m", "mysql_mcp_server.server"]
