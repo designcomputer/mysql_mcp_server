@@ -9,7 +9,7 @@ import subprocess
 from contextlib import contextmanager
 from mysql.connector import connect, Error
 from mcp.server import Server
-from mcp.types import Resource, Tool, TextContent, ToolAnnotations
+from mcp.types import Resource, Tool, TextContent, ToolAnnotations, ResourceTemplate
 from pydantic import AnyUrl
 from dotenv import load_dotenv
 
@@ -22,6 +22,14 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("mysql_mcp_server")
+
+SYSTEM_DATABASES = {'information_schema', 'mysql', 'performance_schema', 'sys'}
+
+def validate_identifier(name: str) -> str:
+    """Validate a MySQL identifier (table/database name) to prevent SQL injection."""
+    if not re.match(r'^[a-zA-Z0-9_$]+$', name):
+        raise ValueError(f"Invalid identifier '{name}': only alphanumeric, underscore, and $ are allowed")
+    return name
 
 @contextmanager
 def maybe_ssh_tunnel():
@@ -73,24 +81,53 @@ def maybe_ssh_tunnel():
 
 def get_db_config(host=None, port=None):
     """Get database configuration from environment variables."""
+    user = os.getenv("MYSQL_USER")
+    password = os.getenv("MYSQL_PASSWORD")
+    database = os.getenv("MYSQL_DATABASE")
+
+    if not user:
+        logger.error("Missing required database configuration: MYSQL_USER is required")
+        raise ValueError("Missing required database configuration")
+
+    if password is None:
+        logger.error("MYSQL_PASSWORD environment variable must be set (can be empty string for no password)")
+        raise ValueError("Missing required database configuration")
+
     config = {
         "host": host or os.getenv("MYSQL_HOST", "localhost"),
         "port": port or int(os.getenv("MYSQL_PORT", "3306")),
-        "user": os.getenv("MYSQL_USER"),
-        "password": os.getenv("MYSQL_PASSWORD"),
-        "database": os.getenv("MYSQL_DATABASE"),
+        "user": user,
+        "password": password,
         "charset": os.getenv("MYSQL_CHARSET", "utf8mb4"),
         "collation": os.getenv("MYSQL_COLLATION", "utf8mb4_unicode_ci"),
         "autocommit": True,
-        "sql_mode": os.getenv("MYSQL_SQL_MODE", "TRADITIONAL")
+        "sql_mode": os.getenv("MYSQL_SQL_MODE", "TRADITIONAL"),
+        "connect_timeout": int(os.getenv("MYSQL_CONNECT_TIMEOUT", "10")),
     }
 
-    # Remove None values
-    config = {k: v for k, v in config.items() if v is not None}
+    if database:
+        config["database"] = database
+        logger.info(f"Using default database: {database}")
+    else:
+        logger.info("No default database specified (multi-database mode).")
 
-    if not all([config.get("user"), config.get("password"), config.get("database")]):
-        logger.error("Missing required database configuration (USER, PASSWORD, DATABASE).")
-        raise ValueError("Missing required database configuration")
+    # SSL Support
+    ssl_mode = os.getenv("MYSQL_SSL_MODE", "").upper()
+    if ssl_mode == "DISABLED":
+        config["ssl_disabled"] = True
+    elif ssl_mode == "REQUIRED":
+        config["ssl_verify_cert"] = True
+    elif ssl_mode == "VERIFY_CA":
+        config["ssl_verify_cert"] = True
+        ssl_ca = os.getenv("MYSQL_SSL_CA")
+        if ssl_ca:
+            config["ssl_ca"] = ssl_ca
+    elif ssl_mode == "VERIFY_IDENTITY":
+        config["ssl_verify_cert"] = True
+        config["ssl_verify_identity"] = True
+        ssl_ca = os.getenv("MYSQL_SSL_CA")
+        if ssl_ca:
+            config["ssl_ca"] = ssl_ca
 
     return config
 
@@ -99,32 +136,51 @@ app = Server("mysql_mcp_server")
 
 @app.list_resources()
 async def list_resources() -> list[Resource]:
-    """List MySQL tables as resources."""
+    """List MySQL tables (or databases if no default database) as resources."""
     with maybe_ssh_tunnel() as (host, port):
         config = get_db_config(host, port)
         try:
             with connect(**config) as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("SHOW TABLES")
-                    tables = cursor.fetchall()
-                    resources = []
-                    for table in tables:
-                        resources.append(
+                    if "database" not in config:
+                        cursor.execute("SHOW DATABASES")
+                        databases = cursor.fetchall()
+                        return [
                             Resource(
-                                uri=f"mysql://{table[0]}/data",
-                                name=f"Table: {table[0]}",
+                                uri=f"mysql://database/{db[0]}",
+                                name=f"Database: {db[0]}",
                                 mimeType="text/plain",
-                                description=f"Data in table: {table[0]}"
+                                description=f"MySQL database: {db[0]}"
                             )
-                        )
-                    return resources
+                            for db in databases if db[0] not in SYSTEM_DATABASES
+                        ]
+                    else:
+                        cursor.execute("SHOW TABLES")
+                        tables = cursor.fetchall()
+                        resources = []
+                        for table in tables:
+                            resources.append(
+                                Resource(
+                                    uri=f"mysql://{table[0]}/data",
+                                    name=f"Table: {table[0]}",
+                                    mimeType="text/plain",
+                                    description=f"Data in table: {table[0]}"
+                                )
+                            )
+                        return resources
         except Error as e:
-            logger.error(f"Failed to list resources: {str(e)}")
+            error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
+            logger.error(f"Failed to list resources: {error_msg}")
             return []
+
+@app.list_resource_templates()
+async def list_resource_templates() -> list[ResourceTemplate]:
+    """Return available resource templates."""
+    return []
 
 @app.read_resource()
 async def read_resource(uri: AnyUrl) -> str:
-    """Read table contents."""
+    """Read table contents or list tables in a database."""
     with maybe_ssh_tunnel() as (host, port):
         config = get_db_config(host, port)
         uri_str = str(uri)
@@ -132,19 +188,34 @@ async def read_resource(uri: AnyUrl) -> str:
             raise ValueError(f"Invalid URI scheme: {uri_str}")
 
         parts = uri_str[8:].split('/')
-        table = parts[0]
 
+        if len(parts) >= 2 and parts[0] == "database":
+            db_name = validate_identifier(parts[1])
+            try:
+                with connect(**config) as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute(f"USE `{db_name}`")
+                        cursor.execute("SHOW TABLES")
+                        tables = cursor.fetchall()
+                        result = [f"Tables in database '{db_name}':"]
+                        result.extend([table[0] for table in tables])
+                        return "\n".join(result)
+            except Error as e:
+                error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
+                raise RuntimeError(f"Database error: {error_msg}")
+
+        table = validate_identifier(parts[0])
         try:
             with connect(**config) as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(f"SELECT * FROM {table} LIMIT 100")
+                    cursor.execute(f"SELECT * FROM `{table}` LIMIT 100")
                     columns = [desc[0] for desc in cursor.description]
                     rows = cursor.fetchall()
-                    result = [",".join(map(str, row)) for row in rows]
+                    result = [",".join("" if v is None else str(v) for v in row) for row in rows]
                     return "\n".join([",".join(columns)] + result)
         except Error as e:
-            logger.error(f"Database error reading resource {uri}: {str(e)}")
-            raise RuntimeError(f"Database error: {str(e)}")
+            error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
+            raise RuntimeError(f"Database error: {error_msg}")
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
@@ -210,23 +281,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "get_schema_info":
         table_name = arguments.get("table_name")
         if table_name:
-            query = f"""
-                SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT
-                FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{table_name}'
-                ORDER BY ORDINAL_POSITION
-            """
+            query = f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{validate_identifier(table_name)}' ORDER BY ORDINAL_POSITION"
         else:
-            query = """
-                SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE
-                FROM information_schema.COLUMNS
-                WHERE TABLE_SCHEMA = DATABASE()
-                ORDER BY TABLE_NAME, ORDINAL_POSITION
-            """
+            query = "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION"
         return await run_query(query)
 
     elif name == "get_table_sample":
-        table_name = arguments.get("table_name")
+        table_name = validate_identifier(arguments.get("table_name"))
         limit = min(arguments.get("limit", 5), 20)
         query = f"SELECT * FROM `{table_name}` LIMIT {limit}"
         return await run_query(query)
@@ -247,7 +308,8 @@ async def run_query(query: str) -> list[TextContent]:
                     # SHOW TABLES
                     if query_upper.startswith("SHOW TABLES"):
                         tables = cursor.fetchall()
-                        result = ["Tables_in_" + config["database"]]
+                        db_name = config.get("database", "all databases")
+                        result = [f"Tables_in_{db_name}"]
                         result.extend([table[0] for table in tables])
                         return [TextContent(type="text", text="\n".join(result))]
 
@@ -266,7 +328,7 @@ async def run_query(query: str) -> list[TextContent]:
                         rows = cursor.fetchall()
                         if not rows:
                             return [TextContent(type="text", text="Query executed successfully. No results returned.")]
-                        result = [",".join(map(str, row)) for row in rows]
+                        result = [",".join("" if v is None else str(v) for v in row) for row in rows]
                         return [TextContent(type="text", text="\n".join([",".join(columns)] + result))]
 
                     # DML
@@ -275,13 +337,21 @@ async def run_query(query: str) -> list[TextContent]:
                         return [TextContent(type="text", text=f"Query executed successfully. Rows affected: {cursor.rowcount}")]
 
         except Error as e:
-            logger.error(f"Error executing SQL: {e}")
-            return [TextContent(type="text", text=f"Error executing query: {str(e)}")]
+            error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
+            logger.error(f"Error executing SQL: {error_msg}")
+            return [TextContent(type="text", text=f"Error executing query: {error_msg}")]
 
 async def main():
     """Main entry point to run the MCP server."""
+    transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
+    if transport == "sse":
+        await _run_sse_server()
+    else:
+        await _run_stdio_server()
+
+async def _run_stdio_server():
     from mcp.server.stdio import stdio_server
-    logger.info("Starting MySQL MCP server...")
+    logger.info("Starting MySQL MCP server (STDIO)...")
     async with stdio_server() as (read_stream, write_stream):
         try:
             await app.run(
@@ -292,6 +362,38 @@ async def main():
         except Exception as e:
             logger.error(f"Server error: {str(e)}", exc_info=True)
             raise
+
+async def _run_sse_server():
+    try:
+        from mcp.server.sse import SseServerTransport
+        from starlette.applications import Starlette
+        from starlette.routing import Mount, Route
+        from starlette.responses import Response
+        import uvicorn
+    except ImportError:
+        logger.error("SSE transport requires additional dependencies. Install with: pip install mysql_mcp_server[sse]")
+        raise
+
+    logger.info("Starting MySQL MCP server (SSE)...")
+    sse = SseServerTransport("/messages/")
+
+    async def handle_sse(request):
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await app.run(streams[0], streams[1], app.create_initialization_options())
+        return Response()
+
+    starlette_app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ]
+    )
+
+    host = os.getenv("MCP_SSE_HOST", "127.0.0.1")
+    port = int(os.getenv("MCP_SSE_PORT", "8000"))
+    server_config = uvicorn.Config(starlette_app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(server_config)
+    await server.serve()
 
 if __name__ == "__main__":
     asyncio.run(main())

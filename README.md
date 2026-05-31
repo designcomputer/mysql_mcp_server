@@ -2,15 +2,22 @@
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/mysql-mcp-server)
 [![smithery badge](https://smithery.ai/badge/mysql-mcp-server)](https://smithery.ai/server/mysql-mcp-server)
 [![MseeP.ai Security Assessment Badge](https://mseep.net/mseep-audited.png)](https://mseep.ai/app/designcomputer-mysql-mcp-server)
+[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/designcomputer/mysql_mcp_server)](https://archestra.ai/mcp-catalog/designcomputer__mysql_mcp_server)
+[![AgentAudit Safe](https://img.shields.io/badge/AgentAudit-safe-brightgreen)](https://www.agentaudit.dev/package/mysql-mcp-server)
 # MySQL MCP Server
 A Model Context Protocol (MCP) implementation that enables secure interaction with MySQL databases. This server component facilitates communication between AI applications (hosts/clients) and MySQL databases, making database exploration and analysis safer and more structured through a controlled interface.
 
 > **Note**: MySQL MCP Server is not designed to be used as a standalone server, but rather as a communication protocol implementation between AI applications and MySQL databases.
 
+## Hosted deployment
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/designcomputer-mysql-mcp-server).
+
 ## Features
 - List available MySQL tables as resources
 - Read table contents
 - Execute SQL queries with proper error handling
+- **Multi-database mode** (Optional `MYSQL_DATABASE`)
+- **SSE/HTTP transport support** (`MCP_TRANSPORT=sse`)
 - **SSH Tunneling support** (Contributed by [GeorgeLeex](https://github.com/GeorgeLeex))
 - **Comprehensive schema information** (Contributed by [GeorgeLeex](https://github.com/GeorgeLeex))
 - **Table data sampling** (Contributed by [GeorgeLeex](https://github.com/GeorgeLeex))
@@ -36,7 +43,16 @@ MYSQL_HOST=localhost     # Database host
 MYSQL_PORT=3306         # Optional: Database port (defaults to 3306 if not specified)
 MYSQL_USER=your_username
 MYSQL_PASSWORD=your_password
-MYSQL_DATABASE=your_database
+MYSQL_DATABASE=your_database # Optional: Omit for multi-database mode
+
+# Advanced Configuration
+MYSQL_SSL_MODE=DISABLED  # DISABLED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY
+MYSQL_CONNECT_TIMEOUT=10 # Timeout in seconds
+
+# SSE Transport (Optional)
+MCP_TRANSPORT=stdio      # stdio or sse
+MCP_SSE_HOST=127.0.0.1
+MCP_SSE_PORT=8000
 
 # SSH Tunneling (Optional)
 MYSQL_SSH_ENABLE=false   # Set to true to enable
@@ -48,6 +64,12 @@ MYSQL_SSH_REMOTE_HOST=localhost # Host from the perspective of the jump host
 MYSQL_SSH_REMOTE_PORT=3306
 MYSQL_LOCAL_PORT=3330
 ```
+
+### Multi-Database Mode
+When `MYSQL_DATABASE` is not set, the server operates in multi-database mode:
+- `list_resources` returns all user databases (system databases are filtered out)
+- Use `USE <database>` in SQL queries to select a database
+- Use fully qualified table names like `mydb.mytable`
 
 ## Usage
 ### With Claude Desktop
