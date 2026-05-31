@@ -78,3 +78,54 @@ async def test_call_tool_show_tables(mock_get_config, mock_connect):
     assert "Tables_in_test_db" in response[0].text
     assert "users" in response[0].text
     assert "orders" in response[0].text
+
+@pytest.mark.asyncio
+@patch("mysql_mcp_server.server.connect")
+@patch("mysql_mcp_server.server.get_db_config")
+async def test_list_resources_identifier_safe(mock_get_config, mock_connect):
+    """Test that resources have identifier-safe names for strict LLMs (Issue #39)."""
+    from mysql_mcp_server.server import list_resources
+    
+    # Mock for single-database mode
+    mock_get_config.return_value = {"database": "test_db", "user": "u", "password": "p"}
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [("users",), ("products",)]
+    
+    mock_conn = MagicMock()
+    mock_conn.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+    mock_connect.return_value = mock_conn
+    
+    resources = await list_resources()
+    
+    assert len(resources) == 2
+    # Should be table_name, not "Table: name"
+    assert resources[0].name == "table_users"
+    assert resources[1].name == "table_products"
+    assert str(resources[0].uri) == "mysql://users/data"
+
+@pytest.mark.asyncio
+@patch("mysql_mcp_server.server.connect")
+@patch("mysql_mcp_server.server.get_db_config")
+async def test_list_resources_multi_db_safe(mock_get_config, mock_connect):
+    """Test that database resources have identifier-safe names."""
+    from mysql_mcp_server.server import list_resources
+    
+    # Mock for multi-database mode (no "database" in config)
+    mock_get_config.return_value = {"user": "u", "password": "p"}
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = [("db1",), ("db2",), ("information_schema",)]
+    
+    mock_conn = MagicMock()
+    mock_conn.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+    mock_connect.return_value = mock_conn
+    
+    resources = await list_resources()
+    
+    # information_schema should be filtered out
+    assert len(resources) == 2
+    # Should be database_name
+    assert resources[0].name == "database_db1"
+    assert resources[1].name == "database_db2"
+    assert str(resources[0].uri) == "mysql://database/db1"
