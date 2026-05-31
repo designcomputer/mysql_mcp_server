@@ -21,15 +21,19 @@ async def test_list_tools():
 @pytest.mark.asyncio
 async def test_call_tool_invalid_name():
     """Test calling a tool with an invalid name."""
-    with pytest.raises(ValueError, match="Unknown tool"):
-        await call_tool("invalid_tool", {})
+    response = await call_tool("invalid_tool", {})
+    assert len(response) == 1
+    assert "Error calling tool" in response[0].text
+    assert "Unknown tool" in response[0].text
 
 
 @pytest.mark.asyncio
 async def test_call_tool_missing_query():
     """Test calling execute_sql without a query."""
-    with pytest.raises(ValueError, match="Query is required"):
-        await call_tool("execute_sql", {})
+    response = await call_tool("execute_sql", {})
+    assert len(response) == 1
+    assert "Error calling tool" in response[0].text
+    assert "Query is required" in response[0].text
 
 
 def test_validate_identifier_valid():

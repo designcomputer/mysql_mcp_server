@@ -6,7 +6,11 @@ import re
 import socket
 import time
 import subprocess
+import traceback
 from contextlib import contextmanager
+from typing import List, Optional, Tuple, Any
+
+import anyio
 from mysql.connector import connect, Error
 from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent, ToolAnnotations, ResourceTemplate
@@ -67,6 +71,8 @@ def maybe_ssh_tunnel():
         'ssh',
         '-i', ssh_key,
         '-N', # Do not execute a remote command.
+        '-o', 'ExitOnForwardFailure=yes', # Exit if tunnel cannot be established.
+        '-o', 'BatchMode=yes',            # Non-interactive mode.
         '-L', f'{local_port}:{remote_host}:{remote_port}', # Local port forwarding.
         f'{ssh_user}@{ssh_host}',
         '-p', str(ssh_port)
@@ -76,6 +82,12 @@ def maybe_ssh_tunnel():
         # Start the SSH process in the background.
         ssh_proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         time.sleep(2)  # Give the tunnel a moment to establish.
+        
+        # Check if process died early.
+        if ssh_proc.poll() is not None:
+            stderr = ssh_proc.stderr.read().decode()
+            raise RuntimeError(f"SSH tunnel process exited prematurely: {stderr}")
+            
         yield "127.0.0.1", local_port
     except Exception as e:
         logger.error(f"Error starting SSH tunnel: {e}")
@@ -117,6 +129,10 @@ def get_db_config(host=None, port=None):
         "sql_mode": os.getenv("MYSQL_SQL_MODE", "TRADITIONAL"),
         "connect_timeout": int(os.getenv("MYSQL_CONNECT_TIMEOUT", "10")),
     }
+    
+    # Allow overriding collation/charset to be empty if needed for older versions.
+    if config["charset"] == "": del config["charset"]
+    if config["collation"] == "": del config["collation"]
 
     if database:
         config["database"] = database
@@ -153,43 +169,46 @@ async def list_resources() -> list[Resource]:
     Lists available MySQL tables (or databases if no default database is configured) as resources.
     This allows AI agents to discover what data is available.
     """
-    with maybe_ssh_tunnel() as (host, port):
-        config = get_db_config(host, port)
-        try:
-            with connect(**config) as conn:
-                with conn.cursor() as cursor:
-                    if "database" not in config:
-                        # Multi-database mode: list available databases.
-                        cursor.execute("SHOW DATABASES")
-                        databases = cursor.fetchall()
-                        return [
-                            Resource(
-                                uri=f"mysql://database/{db[0]}",
-                                name=f"Database: {db[0]}",
-                                mimeType="text/plain",
-                                description=f"MySQL database: {db[0]}"
-                            )
-                            for db in databases if db[0] not in SYSTEM_DATABASES
-                        ]
-                    else:
-                        # Single-database mode: list tables in the configured database.
-                        cursor.execute("SHOW TABLES")
-                        tables = cursor.fetchall()
-                        resources = []
-                        for table in tables:
-                            resources.append(
+    def _sync_list():
+        with maybe_ssh_tunnel() as (host, port):
+            config = get_db_config(host, port)
+            try:
+                with connect(**config) as conn:
+                    with conn.cursor() as cursor:
+                        if "database" not in config:
+                            # Multi-database mode: list available databases.
+                            cursor.execute("SHOW DATABASES")
+                            databases = cursor.fetchall()
+                            return [
                                 Resource(
-                                    uri=f"mysql://{table[0]}/data",
-                                    name=f"Table: {table[0]}",
+                                    uri=f"mysql://database/{db[0]}",
+                                    name=f"Database: {db[0]}",
                                     mimeType="text/plain",
-                                    description=f"Data in table: {table[0]}"
+                                    description=f"MySQL database: {db[0]}"
                                 )
-                            )
-                        return resources
-        except Error as e:
-            error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
-            logger.error(f"Failed to list resources: {error_msg}")
-            return []
+                                for db in databases if db[0] not in SYSTEM_DATABASES
+                            ]
+                        else:
+                            # Single-database mode: list tables in the configured database.
+                            cursor.execute("SHOW TABLES")
+                            tables = cursor.fetchall()
+                            resources = []
+                            for table in tables:
+                                resources.append(
+                                    Resource(
+                                        uri=f"mysql://{table[0]}/data",
+                                        name=f"Table: {table[0]}",
+                                        mimeType="text/plain",
+                                        description=f"Data in table: {table[0]}"
+                                    )
+                                )
+                            return resources
+            except Error as e:
+                error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
+                logger.error(f"Failed to list resources: {error_msg}")
+                return []
+                
+    return await anyio.to_thread.run_sync(_sync_list)
 
 @app.list_resource_templates()
 async def list_resource_templates() -> list[ResourceTemplate]:
@@ -204,44 +223,47 @@ async def read_resource(uri: AnyUrl) -> str:
     """
     Reads the content of a specific table or lists tables within a database based on the provided URI.
     """
-    with maybe_ssh_tunnel() as (host, port):
-        config = get_db_config(host, port)
-        uri_str = str(uri)
-        if not uri_str.startswith("mysql://"):
-            raise ValueError(f"Invalid URI scheme: {uri_str}")
+    def _sync_read():
+        with maybe_ssh_tunnel() as (host, port):
+            config = get_db_config(host, port)
+            uri_str = str(uri)
+            if not uri_str.startswith("mysql://"):
+                raise ValueError(f"Invalid URI scheme: {uri_str}")
 
-        parts = uri_str[8:].split('/')
+            parts = uri_str[8:].split('/')
 
-        # Handle requests to list tables in a specific database.
-        if len(parts) >= 2 and parts[0] == "database":
-            db_name = validate_identifier(parts[1])
+            # Handle requests to list tables in a specific database.
+            if len(parts) >= 2 and parts[0] == "database":
+                db_name = validate_identifier(parts[1])
+                try:
+                    with connect(**config) as conn:
+                        with conn.cursor() as cursor:
+                            cursor.execute(f"USE `{db_name}`")
+                            cursor.execute("SHOW TABLES")
+                            tables = cursor.fetchall()
+                            result = [f"Tables in database '{db_name}':"]
+                            result.extend([table[0] for table in tables])
+                            return "\n".join(result)
+                except Error as e:
+                    error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
+                    raise RuntimeError(f"Database error: {error_msg}")
+
+            # Handle requests to read data from a specific table.
+            table = validate_identifier(parts[0])
             try:
                 with connect(**config) as conn:
                     with conn.cursor() as cursor:
-                        cursor.execute(f"USE `{db_name}`")
-                        cursor.execute("SHOW TABLES")
-                        tables = cursor.fetchall()
-                        result = [f"Tables in database '{db_name}':"]
-                        result.extend([table[0] for table in tables])
-                        return "\n".join(result)
+                        cursor.execute(f"SELECT * FROM `{table}` LIMIT 100")
+                        columns = [desc[0] for desc in cursor.description]
+                        rows = cursor.fetchall()
+                        # Format output as simple CSV-like text.
+                        result = [",".join("" if v is None else str(v) for v in row) for row in rows]
+                        return "\n".join([",".join(columns)] + result)
             except Error as e:
                 error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
                 raise RuntimeError(f"Database error: {error_msg}")
 
-        # Handle requests to read data from a specific table.
-        table = validate_identifier(parts[0])
-        try:
-            with connect(**config) as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(f"SELECT * FROM `{table}` LIMIT 100")
-                    columns = [desc[0] for desc in cursor.description]
-                    rows = cursor.fetchall()
-                    # Format output as simple CSV-like text.
-                    result = [",".join("" if v is None else str(v) for v in row) for row in rows]
-                    return "\n".join([",".join(columns)] + result)
-        except Error as e:
-            error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
-            raise RuntimeError(f"Database error: {error_msg}")
+    return await anyio.to_thread.run_sync(_sync_read)
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
@@ -300,84 +322,95 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """
     Dispatches tool calls from AI agents to the appropriate implementation logic.
     """
-    logger.info(f"Calling tool: {name} with arguments: {arguments}")
+    try:
+        logger.info(f"Calling tool: {name} with arguments: {arguments}")
 
-    if name == "execute_sql":
-        query = arguments.get("query")
-        if not query:
-            raise ValueError("Query is required")
-        return await run_query(query)
-    
-    elif name == "get_schema_info":
-        table_name = arguments.get("table_name")
-        if table_name:
-            # Fetch detailed column metadata for a single table.
-            query = f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{validate_identifier(table_name)}' ORDER BY ORDINAL_POSITION"
+        if name == "execute_sql":
+            query = arguments.get("query")
+            if not query:
+                raise ValueError("Query is required")
+            return await run_query(query)
+        
+        elif name == "get_schema_info":
+            table_name = arguments.get("table_name")
+            if table_name:
+                # Fetch detailed column metadata for a single table.
+                query = f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{validate_identifier(table_name)}' ORDER BY ORDINAL_POSITION"
+            else:
+                # Fetch summary information for all tables.
+                query = "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION"
+            return await run_query(query)
+
+        elif name == "get_table_sample":
+            table_name = validate_identifier(arguments.get("table_name"))
+            limit = min(arguments.get("limit", 5), 20)
+            query = f"SELECT * FROM `{table_name}` LIMIT {limit}"
+            return await run_query(query)
+
         else:
-            # Fetch summary information for all tables.
-            query = "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION"
-        return await run_query(query)
-
-    elif name == "get_table_sample":
-        table_name = validate_identifier(arguments.get("table_name"))
-        limit = min(arguments.get("limit", 5), 20)
-        query = f"SELECT * FROM `{table_name}` LIMIT {limit}"
-        return await run_query(query)
-
-    else:
-        raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {name}")
+    except Exception as e:
+        logger.error(f"Error in call_tool: {str(e)}")
+        logger.error(traceback.format_exc())
+        # Return the error as a TextContent so the client can display it.
+        # This addresses Issue #50 where errors were not being reported clearly.
+        return [TextContent(type="text", text=f"Error calling tool {name}: {str(e)}")]
 
 async def run_query(query: str) -> list[TextContent]:
     """
     A helper function that handles the execution of a SQL query,
     formatting the results based on the query type (SHOW, DESCRIBE, SELECT, or DML).
+    Uses anyio.to_thread.run_sync to prevent blocking the async event loop.
     """
-    with maybe_ssh_tunnel() as (host, port):
-        config = get_db_config(host, port)
-        try:
-            with connect(**config) as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(query)
-                    query_upper = query.strip().upper()
+    def _sync_run():
+        with maybe_ssh_tunnel() as (host, port):
+            config = get_db_config(host, port)
+            try:
+                with connect(**config) as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute(query)
+                        query_upper = query.strip().upper()
 
-                    # Specific handling for 'SHOW TABLES' to provide a cleaner header.
-                    if query_upper.startswith("SHOW TABLES"):
-                        tables = cursor.fetchall()
-                        db_name = config.get("database", "all databases")
-                        result = [f"Tables_in_{db_name}"]
-                        result.extend([table[0] for table in tables])
-                        return [TextContent(type="text", text="\n".join(result))]
+                        # Specific handling for 'SHOW TABLES' to provide a cleaner header.
+                        if query_upper.startswith("SHOW TABLES"):
+                            tables = cursor.fetchall()
+                            db_name = config.get("database", "all databases")
+                            result = [f"Tables_in_{db_name}"]
+                            result.extend([table[0] for table in tables])
+                            return [TextContent(type="text", text="\n".join(result))]
 
-                    # Specific handling for inspection queries to format results clearly.
-                    elif any(query_upper.startswith(p) for p in ["DESCRIBE ", "DESC ", "SHOW COLUMNS FROM ", "SHOW FIELDS FROM "]):
-                        columns = [desc[0] for desc in cursor.description]
-                        rows = cursor.fetchall()
-                        results = [",".join(columns)]
-                        for row in rows:
-                            # Convert None values to the string "NULL" for clarity in output.
-                            results.append(",".join(str(v) if v is not None else "NULL" for v in row))
-                        return [TextContent(type="text", text="\n".join(results))]
+                        # Specific handling for inspection queries to format results clearly.
+                        elif any(query_upper.startswith(p) for p in ["DESCRIBE ", "DESC ", "SHOW COLUMNS FROM ", "SHOW FIELDS FROM "]):
+                            columns = [desc[0] for desc in cursor.description]
+                            rows = cursor.fetchall()
+                            results = [",".join(columns)]
+                            for row in rows:
+                                # Convert None values to the string "NULL" for clarity in output.
+                                results.append(",".join(str(v) if v is not None else "NULL" for v in row))
+                            return [TextContent(type="text", text="\n".join(results))]
 
-                    # Handling for standard result sets (SELECT, etc.).
-                    elif cursor.description is not None:
-                        columns = [desc[0] for desc in cursor.description]
-                        rows = cursor.fetchall()
-                        if not rows:
-                            return [TextContent(type="text", text="Query executed successfully. No results returned.")]
-                        # Format rows as CSV-like text.
-                        result = [",".join("" if v is None else str(v) for v in row) for row in rows]
-                        return [TextContent(type="text", text="\n".join([",".join(columns)] + result))]
+                        # Handling for standard result sets (SELECT, etc.).
+                        elif cursor.description is not None:
+                            columns = [desc[0] for desc in cursor.description]
+                            rows = cursor.fetchall()
+                            if not rows:
+                                return [TextContent(type="text", text="Query executed successfully. No results returned.")]
+                            # Format rows as CSV-like text.
+                            result = [",".join("" if v is None else str(v) for v in row) for row in rows]
+                            return [TextContent(type="text", text="\n".join([",".join(columns)] + result))]
 
-                    # Handling for Data Manipulation Language (DML) queries like INSERT, UPDATE, DELETE.
-                    else:
-                        conn.commit() # Ensure changes are persistent.
-                        return [TextContent(type="text", text=f"Query executed successfully. Rows affected: {cursor.rowcount}")]
+                        # Handling for Data Manipulation Language (DML) queries like INSERT, UPDATE, DELETE.
+                        else:
+                            conn.commit() # Ensure changes are persistent.
+                            return [TextContent(type="text", text=f"Query executed successfully. Rows affected: {cursor.rowcount}")]
 
-        except Error as e:
-            # Extract and log specific MySQL error messages.
-            error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
-            logger.error(f"Error executing SQL: {error_msg}")
-            return [TextContent(type="text", text=f"Error executing query: {error_msg}")]
+            except Error as e:
+                # Extract and log specific MySQL error messages.
+                error_msg = getattr(e, 'msg', None) or str(e) or 'Unknown MySQL error'
+                logger.error(f"Error executing SQL: {error_msg}")
+                return [TextContent(type="text", text=f"Error executing query: {error_msg}")]
+
+    return await anyio.to_thread.run_sync(_sync_run)
 
 async def main():
     """
