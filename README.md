@@ -121,15 +121,15 @@ For more detailed examples and agent-specific guidance, see [MCP_USECASES.md](MC
 Add this to your `mcp.json`:
 ```json
 {
-  "servers": {
-      "mysql": {
-            "type": "stdio",
-            "command": "uvx",
-            "args": [
-                "--from",
-                "mysql-mcp-server",
-                "mysql_mcp_server"
-            ],
+  "mcpServers": {
+    "mysql": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mysql-mcp-server",
+        "mysql_mcp_server"
+      ],
       "env": {
         "MYSQL_HOST": "localhost",
         "MYSQL_PORT": "3306",
