@@ -127,7 +127,7 @@ async def list_tools() -> list[Tool]:
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Execute SQL commands."""
-    config = get_db_config()
+
     logger.info(f"Calling tool: {name} with arguments: {arguments}")
 
     if name != "execute_sql":
@@ -137,6 +137,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if not query:
         raise ValueError("Query is required")
 
+    config = get_db_config()
     try:
         logger.info(f"Connecting to MySQL with charset: {config.get('charset')}, collation: {config.get('collation')}")
         with connect(**config) as conn:
