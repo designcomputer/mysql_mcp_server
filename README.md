@@ -4,6 +4,7 @@
 [![MseeP.ai Security Assessment Badge](https://mseep.net/mseep-audited.png)](https://mseep.ai/app/designcomputer-mysql-mcp-server)
 [![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/designcomputer/mysql_mcp_server)](https://archestra.ai/mcp-catalog/designcomputer__mysql_mcp_server)
 [![AgentAudit Safe](https://img.shields.io/badge/AgentAudit-safe-brightgreen)](https://www.agentaudit.dev/package/mysql-mcp-server)
+[![MCPSafe](https://api.mcpsafe.io/badge/github/designcomputer/mysql_mcp_server.svg)](https://mcpsafe.io/registry/github/designcomputer/mysql_mcp_server)
 # MySQL MCP Server
 A Model Context Protocol (MCP) implementation that enables secure interaction with MySQL databases. This server component facilitates communication between AI applications (hosts/clients) and MySQL databases, making database exploration and analysis safer and more structured through a controlled interface.
 
