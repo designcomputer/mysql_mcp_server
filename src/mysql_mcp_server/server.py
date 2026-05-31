@@ -9,7 +9,7 @@ import subprocess
 from contextlib import contextmanager
 from mysql.connector import connect, Error
 from mcp.server import Server
-from mcp.types import Resource, Tool, TextContent
+from mcp.types import Resource, Tool, TextContent, ToolAnnotations
 from pydantic import AnyUrl
 from dotenv import load_dotenv
 
@@ -162,7 +162,12 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["query"]
-            }
+            },
+            annotations=ToolAnnotations(
+                title="Execute SQL",
+                readOnlyHint=False,
+                destructiveHint=True
+            )
         ),
         Tool(
             name="get_schema_info",
