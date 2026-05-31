@@ -11,6 +11,9 @@ A Model Context Protocol (MCP) implementation that enables secure interaction wi
 - List available MySQL tables as resources
 - Read table contents
 - Execute SQL queries with proper error handling
+- **SSH Tunneling support** (Contributed by [GeorgeLeex](https://github.com/GeorgeLeex))
+- **Comprehensive schema information** (Contributed by [GeorgeLeex](https://github.com/GeorgeLeex))
+- **Table data sampling** (Contributed by [GeorgeLeex](https://github.com/GeorgeLeex))
 - Secure database access through environment variables
 - Comprehensive logging
 
@@ -34,6 +37,16 @@ MYSQL_PORT=3306         # Optional: Database port (defaults to 3306 if not speci
 MYSQL_USER=your_username
 MYSQL_PASSWORD=your_password
 MYSQL_DATABASE=your_database
+
+# SSH Tunneling (Optional)
+MYSQL_SSH_ENABLE=false   # Set to true to enable
+MYSQL_SSH_HOST=          # SSH jump host
+MYSQL_SSH_PORT=22        # SSH port
+MYSQL_SSH_USER=          # SSH username
+MYSQL_SSH_KEY_PATH=      # Path to SSH private key
+MYSQL_SSH_REMOTE_HOST=localhost # Host from the perspective of the jump host
+MYSQL_SSH_REMOTE_PORT=3306
+MYSQL_LOCAL_PORT=3330
 ```
 
 ## Usage

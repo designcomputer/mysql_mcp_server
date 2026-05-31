@@ -2,10 +2,19 @@ import asyncio
 import logging
 import os
 import sys
+import re
+import socket
+import time
+import subprocess
+from contextlib import contextmanager
 from mysql.connector import connect, Error
 from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent
 from pydantic import AnyUrl
+from dotenv import load_dotenv
+
+# Load environment variables from .env if present
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -14,30 +23,73 @@ logging.basicConfig(
 )
 logger = logging.getLogger("mysql_mcp_server")
 
-def get_db_config():
+@contextmanager
+def maybe_ssh_tunnel():
+    """
+    Creates an SSH tunnel if MYSQL_SSH_ENABLE is true.
+    Contributed by GeorgeLeex (PR #64).
+    """
+    use_ssh = os.getenv("MYSQL_SSH_ENABLE", "false").lower() == "true"
+    if not use_ssh:
+        yield os.getenv("MYSQL_HOST", "localhost"), int(os.getenv("MYSQL_PORT", "3306"))
+        return
+
+    ssh_host = os.getenv("MYSQL_SSH_HOST")
+    ssh_port = int(os.getenv("MYSQL_SSH_PORT", "22"))
+    ssh_user = os.getenv("MYSQL_SSH_USER")
+    ssh_key = os.getenv("MYSQL_SSH_KEY_PATH")
+    remote_host = os.getenv("MYSQL_SSH_REMOTE_HOST", "localhost")
+    remote_port = int(os.getenv("MYSQL_SSH_REMOTE_PORT", "3306"))
+    local_port = int(os.getenv("MYSQL_LOCAL_PORT", "3330"))
+
+    # Mask SSH key path in logs
+    safe_ssh_key = os.path.basename(ssh_key) if ssh_key else None
+    logger.info(f"Starting SSH tunnel: {ssh_user}@{ssh_host}:{ssh_port} -> {local_port}:{remote_host}:{remote_port} (key: {safe_ssh_key})")
+
+    # Build the SSH command
+    ssh_cmd = [
+        'ssh',
+        '-i', ssh_key,
+        '-N',
+        '-L', f'{local_port}:{remote_host}:{remote_port}',
+        f'{ssh_user}@{ssh_host}',
+        '-p', str(ssh_port)
+    ]
+    
+    try:
+        ssh_proc = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        time.sleep(2)  # Wait for tunnel to be ready
+        yield "127.0.0.1", local_port
+    except Exception as e:
+        logger.error(f"Error starting SSH tunnel: {e}")
+        raise
+    finally:
+        logger.info("Terminating SSH tunnel process.")
+        try:
+            ssh_proc.terminate()
+            ssh_proc.wait(timeout=5)
+        except Exception as e:
+            logger.error(f"Error terminating SSH tunnel: {e}")
+
+def get_db_config(host=None, port=None):
     """Get database configuration from environment variables."""
     config = {
-        "host": os.getenv("MYSQL_HOST", "localhost"),
-        "port": int(os.getenv("MYSQL_PORT", "3306")),
+        "host": host or os.getenv("MYSQL_HOST", "localhost"),
+        "port": port or int(os.getenv("MYSQL_PORT", "3306")),
         "user": os.getenv("MYSQL_USER"),
         "password": os.getenv("MYSQL_PASSWORD"),
         "database": os.getenv("MYSQL_DATABASE"),
-        # Add charset and collation to avoid utf8mb4_0900_ai_ci issues with older MySQL versions
-        # These can be overridden via environment variables for specific MySQL versions
         "charset": os.getenv("MYSQL_CHARSET", "utf8mb4"),
         "collation": os.getenv("MYSQL_COLLATION", "utf8mb4_unicode_ci"),
-        # Disable autocommit for better transaction control
         "autocommit": True,
-        # Set SQL mode for better compatibility - can be overridden
         "sql_mode": os.getenv("MYSQL_SQL_MODE", "TRADITIONAL")
     }
 
-    # Remove None values to let MySQL connector use defaults if not specified
+    # Remove None values
     config = {k: v for k, v in config.items() if v is not None}
 
     if not all([config.get("user"), config.get("password"), config.get("database")]):
-        logger.error("Missing required database configuration. Please check environment variables:")
-        logger.error("MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE are required")
+        logger.error("Missing required database configuration (USER, PASSWORD, DATABASE).")
         raise ValueError("Missing required database configuration")
 
     return config
@@ -48,65 +100,55 @@ app = Server("mysql_mcp_server")
 @app.list_resources()
 async def list_resources() -> list[Resource]:
     """List MySQL tables as resources."""
-    config = get_db_config()
-    try:
-        logger.info(f"Connecting to MySQL with charset: {config.get('charset')}, collation: {config.get('collation')}")
-        with connect(**config) as conn:
-            logger.info(f"Successfully connected to MySQL server version: {conn.get_server_info()}")
-            with conn.cursor() as cursor:
-                cursor.execute("SHOW TABLES")
-                tables = cursor.fetchall()
-                logger.info(f"Found tables: {tables}")
-
-                resources = []
-                for table in tables:
-                    resources.append(
-                        Resource(
-                            uri=f"mysql://{table[0]}/data",
-                            name=f"Table: {table[0]}",
-                            mimeType="text/plain",
-                            description=f"Data in table: {table[0]}"
+    with maybe_ssh_tunnel() as (host, port):
+        config = get_db_config(host, port)
+        try:
+            with connect(**config) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SHOW TABLES")
+                    tables = cursor.fetchall()
+                    resources = []
+                    for table in tables:
+                        resources.append(
+                            Resource(
+                                uri=f"mysql://{table[0]}/data",
+                                name=f"Table: {table[0]}",
+                                mimeType="text/plain",
+                                description=f"Data in table: {table[0]}"
+                            )
                         )
-                    )
-                return resources
-    except Error as e:
-        logger.error(f"Failed to list resources: {str(e)}")
-        logger.error(f"Error code: {e.errno}, SQL state: {e.sqlstate}")
-        return []
+                    return resources
+        except Error as e:
+            logger.error(f"Failed to list resources: {str(e)}")
+            return []
 
 @app.read_resource()
 async def read_resource(uri: AnyUrl) -> str:
     """Read table contents."""
-    config = get_db_config()
-    uri_str = str(uri)
-    logger.info(f"Reading resource: {uri_str}")
+    with maybe_ssh_tunnel() as (host, port):
+        config = get_db_config(host, port)
+        uri_str = str(uri)
+        if not uri_str.startswith("mysql://"):
+            raise ValueError(f"Invalid URI scheme: {uri_str}")
 
-    if not uri_str.startswith("mysql://"):
-        raise ValueError(f"Invalid URI scheme: {uri_str}")
+        parts = uri_str[8:].split('/')
+        table = parts[0]
 
-    parts = uri_str[8:].split('/')
-    table = parts[0]
-
-    try:
-        logger.info(f"Connecting to MySQL with charset: {config.get('charset')}, collation: {config.get('collation')}")
-        with connect(**config) as conn:
-            logger.info(f"Successfully connected to MySQL server version: {conn.get_server_info()}")
-            with conn.cursor() as cursor:
-                cursor.execute(f"SELECT * FROM {table} LIMIT 100")
-                columns = [desc[0] for desc in cursor.description]
-                rows = cursor.fetchall()
-                result = [",".join(map(str, row)) for row in rows]
-                return "\n".join([",".join(columns)] + result)
-
-    except Error as e:
-        logger.error(f"Database error reading resource {uri}: {str(e)}")
-        logger.error(f"Error code: {e.errno}, SQL state: {e.sqlstate}")
-        raise RuntimeError(f"Database error: {str(e)}")
+        try:
+            with connect(**config) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(f"SELECT * FROM {table} LIMIT 100")
+                    columns = [desc[0] for desc in cursor.description]
+                    rows = cursor.fetchall()
+                    result = [",".join(map(str, row)) for row in rows]
+                    return "\n".join([",".join(columns)] + result)
+        except Error as e:
+            logger.error(f"Database error reading resource {uri}: {str(e)}")
+            raise RuntimeError(f"Database error: {str(e)}")
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """List available MySQL tools."""
-    logger.info("Listing tools...")
     return [
         Tool(
             name="execute_sql",
@@ -121,6 +163,31 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["query"]
             }
+        ),
+        Tool(
+            name="get_schema_info",
+            description="Get comprehensive schema information (Contributed by GeorgeLeex)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "table_name": {
+                        "type": "string",
+                        "description": "Optional: Specific table name."
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="get_table_sample",
+            description="Get a sample of data from a table (Contributed by GeorgeLeex)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "table_name": {"type": "string", "description": "Table to sample"},
+                    "limit": {"type": "integer", "description": "Rows to return (max 20)"}
+                },
+                "required": ["table_name"]
+            }
         )
     ]
 
@@ -129,87 +196,87 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Execute SQL commands."""
     logger.info(f"Calling tool: {name} with arguments: {arguments}")
 
-    # Verify tool name first, before checking DB config
-    if name != "execute_sql":
+    if name == "execute_sql":
+        query = arguments.get("query")
+        if not query:
+            raise ValueError("Query is required")
+        return await run_query(query)
+    
+    elif name == "get_schema_info":
+        table_name = arguments.get("table_name")
+        if table_name:
+            query = f"""
+                SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{table_name}'
+                ORDER BY ORDINAL_POSITION
+            """
+        else:
+            query = """
+                SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                ORDER BY TABLE_NAME, ORDINAL_POSITION
+            """
+        return await run_query(query)
+
+    elif name == "get_table_sample":
+        table_name = arguments.get("table_name")
+        limit = min(arguments.get("limit", 5), 20)
+        query = f"SELECT * FROM `{table_name}` LIMIT {limit}"
+        return await run_query(query)
+
+    else:
         raise ValueError(f"Unknown tool: {name}")
 
-    # Then check if query is provided
-    query = arguments.get("query")
-    if not query:
-        raise ValueError("Query is required")
+async def run_query(query: str) -> list[TextContent]:
+    """Helper to run a query with current formatting logic and SSH support."""
+    with maybe_ssh_tunnel() as (host, port):
+        config = get_db_config(host, port)
+        try:
+            with connect(**config) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(query)
+                    query_upper = query.strip().upper()
 
-    # Now get DB config - this allows validation tests to pass
-    # without requiring actual DB credentials
-    config = get_db_config()
-    try:
-        logger.info(f"Connecting to MySQL with charset: {config.get('charset')}, collation: {config.get('collation')}")
-        with connect(**config) as conn:
-            logger.info(f"Successfully connected to MySQL server version: {conn.get_server_info()}")
-            with conn.cursor() as cursor:
-                # Always ensure we consume all results to avoid "Unread result found" errors
-                cursor.execute(query)
+                    # SHOW TABLES
+                    if query_upper.startswith("SHOW TABLES"):
+                        tables = cursor.fetchall()
+                        result = ["Tables_in_" + config["database"]]
+                        result.extend([table[0] for table in tables])
+                        return [TextContent(type="text", text="\n".join(result))]
 
-                # Check the query type by normalizing and checking the first word
-                query_upper = query.strip().upper()
+                    # DESCRIBE / SHOW COLUMNS
+                    elif any(query_upper.startswith(p) for p in ["DESCRIBE ", "DESC ", "SHOW COLUMNS FROM ", "SHOW FIELDS FROM "]):
+                        columns = [desc[0] for desc in cursor.description]
+                        rows = cursor.fetchall()
+                        results = [",".join(columns)]
+                        for row in rows:
+                            results.append(",".join(str(v) if v is not None else "NULL" for v in row))
+                        return [TextContent(type="text", text="\n".join(results))]
 
-                # Special handling for SHOW TABLES
-                if query_upper.startswith("SHOW TABLES"):
-                    tables = cursor.fetchall()
-                    result = ["Tables_in_" + config["database"]]  # Header
-                    result.extend([table[0] for table in tables])
-                    return [TextContent(type="text", text="\n".join(result))]
+                    # SELECT / Other result sets
+                    elif cursor.description is not None:
+                        columns = [desc[0] for desc in cursor.description]
+                        rows = cursor.fetchall()
+                        if not rows:
+                            return [TextContent(type="text", text="Query executed successfully. No results returned.")]
+                        result = [",".join(map(str, row)) for row in rows]
+                        return [TextContent(type="text", text="\n".join([",".join(columns)] + result))]
 
-                # Special handling for DESCRIBE and SHOW COLUMNS
-                elif query_upper.startswith("DESCRIBE ") or query_upper.startswith("DESC ") or query_upper.startswith("SHOW COLUMNS FROM ") or query_upper.startswith("SHOW FIELDS FROM "):
-                    columns = [desc[0] for desc in cursor.description]
-                    rows = cursor.fetchall()
+                    # DML
+                    else:
+                        conn.commit()
+                        return [TextContent(type="text", text=f"Query executed successfully. Rows affected: {cursor.rowcount}")]
 
-                    # Format the results in a more readable way
-                    results = []
-                    results.append(",".join(columns))
-                    for row in rows:
-                        # Convert None values to "NULL" for better readability
-                        formatted_row = [str(val) if val is not None else "NULL" for val in row]
-                        results.append(",".join(formatted_row))
-
-                    return [TextContent(type="text", text="\n".join(results))]
-
-                # Handle all other queries that return result sets (SELECT, SHOW, etc.)
-                elif cursor.description is not None:
-                    columns = [desc[0] for desc in cursor.description]
-                    rows = cursor.fetchall()
-
-                    if not rows:
-                        return [TextContent(type="text", text="Query executed successfully. No results returned.")]
-
-                    result = [",".join(map(str, row)) for row in rows]
-                    return [TextContent(type="text", text="\n".join([",".join(columns)] + result))]
-
-                # Non-SELECT queries (INSERT, UPDATE, DELETE, etc.)
-                else:
-                    conn.commit()
-                    return [TextContent(type="text", text=f"Query executed successfully. Rows affected: {cursor.rowcount}")]
-
-    except Error as e:
-        logger.error(f"Error executing SQL '{query}': {e}")
-        logger.error(f"Error code: {e.errno}, SQL state: {e.sqlstate}")
-        return [TextContent(type="text", text=f"Error executing query: {str(e)}")]
+        except Error as e:
+            logger.error(f"Error executing SQL: {e}")
+            return [TextContent(type="text", text=f"Error executing query: {str(e)}")]
 
 async def main():
     """Main entry point to run the MCP server."""
     from mcp.server.stdio import stdio_server
-
-    # Add additional debug output
-    print("Starting MySQL MCP server with config:", file=sys.stderr)
-    config = get_db_config()
-    print(f"Host: {config['host']}", file=sys.stderr)
-    print(f"Port: {config['port']}", file=sys.stderr)
-    print(f"User: {config['user']}", file=sys.stderr)
-    print(f"Database: {config['database']}", file=sys.stderr)
-
     logger.info("Starting MySQL MCP server...")
-    logger.info(f"Database config: {config['host']}/{config['database']} as {config['user']}")
-
     async with stdio_server() as (read_stream, write_stream):
         try:
             await app.run(
