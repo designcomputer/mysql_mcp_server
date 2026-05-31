@@ -71,6 +71,23 @@ When `MYSQL_DATABASE` is not set, the server operates in multi-database mode:
 - Use `USE <database>` in SQL queries to select a database
 - Use fully qualified table names like `mydb.mytable`
 
+## Available Tools
+
+### `execute_sql`
+Executes any standard SQL query.
+- **Arguments:** `query` (string)
+- **Features:** Supports `SELECT`, `SHOW`, `DESCRIBE`, and DML (`INSERT`, `UPDATE`, `DELETE`). DML operations are marked with a destructive hint.
+
+### `get_schema_info`
+Provides detailed metadata about database structures.
+- **Arguments:** `table_name` (optional string)
+- **Output:** Column names, types, nullability, default values, and comments.
+
+### `get_table_sample`
+Fetches a representative sample of data.
+- **Arguments:** `table_name` (string), `limit` (optional integer, max 20)
+- **Use Case:** Quickly understand data formats and content without fetching large result sets.
+
 ## Usage
 ### With Claude Desktop
 Add this to your `claude_desktop_config.json`:
@@ -96,6 +113,8 @@ Add this to your `claude_desktop_config.json`:
   }
 }
 ```
+
+For more detailed examples and agent-specific guidance, see [MCP_USECASES.md](MCP_USECASES.md).
 
 ### With Visual Studio Code
 Add this to your `mcp.json`:
@@ -151,10 +170,12 @@ pytest
 ```
 
 ## Security Considerations
-- Never commit environment variables or credentials
-- Use a database user with minimal required permissions
-- Consider implementing query whitelisting for production use
-- Monitor and log all database operations
+- **Identifier Validation:** Built-in protection against SQL injection via strict regex whitelisting for database and table names.
+- **Encrypted Access:** Full support for SSL/TLS and SSH Tunneling for secure remote connections.
+- **Log Privacy:** Passwords and SSH private keys are automatically masked in server logs.
+- **Least Privilege:** Always use a dedicated MySQL user with minimal required permissions.
+
+See [SECURITY.md](SECURITY.md) for a comprehensive guide on securing your deployment.
 
 ## Security Best Practices
 This MCP implementation requires database access to function. For security:

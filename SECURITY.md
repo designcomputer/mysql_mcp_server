@@ -112,5 +112,31 @@ WHERE user = 'mcp_user' AND host = 'localhost';
 
 4. **Data Protection**
    - Consider encrypting sensitive columns
-   - Use SSL/TLS for database connections
+   - Use SSL/TLS for database connections (see **SSL/TLS Support** below)
    - Implement data masking where appropriate
+
+### Secure Remote Access (SSH Tunneling)
+
+If your MySQL server is not on the same network as the MCP server, **do not expose MySQL directly to the internet.** Instead, use the built-in SSH tunneling support:
+
+1. Enable SSH tunneling by setting `MYSQL_SSH_ENABLE=true`.
+2. Configure your SSH jump host credentials and private key path.
+3. The MCP server will establish a secure encrypted tunnel and connect to MySQL over `localhost`, keeping your database port closed to the outside world.
+
+### SSL/TLS Support
+
+For production environments, always encrypt the connection between the MCP server and MySQL.
+
+Use the `MYSQL_SSL_MODE` environment variable to control encryption:
+- `REQUIRED`: Ensures the connection is encrypted.
+- `VERIFY_CA`: Encrypts and verifies the server's certificate against a CA.
+- `VERIFY_IDENTITY`: Encrypts and verifies that the server's hostname matches the certificate.
+
+Specify the CA certificate path using `MYSQL_SSL_CA` if using verification modes.
+
+### SQL Injection Protection
+
+The MCP server includes built-in protection against SQL injection for administrative operations:
+- All database and table identifiers provided via resources or tool arguments are strictly validated against a regex whitelist (`^[a-zA-Z0-9_$]+$`).
+- Identifiers are automatically quoted with backticks in internal queries.
+- Destructive operations in `execute_sql` are flagged via `destructiveHint` to AI agents.
