@@ -50,6 +50,13 @@ MYSQL_DATABASE=your_database # Optional: Omit for multi-database mode
 MYSQL_SSL_MODE=DISABLED  # DISABLED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY
 MYSQL_CONNECT_TIMEOUT=10 # Timeout in seconds
 
+# Compatibility (Optional)
+MYSQL_CHARSET=utf8mb4
+MYSQL_COLLATION=utf8mb4_unicode_ci
+MYSQL_AUTH_PLUGIN=       # e.g., mysql_native_password for older MySQL versions
+MYSQL_USE_PURE=false     # Use pure Python implementation
+MYSQL_RAISE_ON_WARNINGS=false
+
 # SSE Transport (Optional)
 MCP_TRANSPORT=stdio      # stdio or sse
 MCP_SSE_HOST=127.0.0.1

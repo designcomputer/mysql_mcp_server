@@ -128,7 +128,14 @@ def get_db_config(host=None, port=None):
         "autocommit": True, # Ensure changes are committed immediately if supported.
         "sql_mode": os.getenv("MYSQL_SQL_MODE", "TRADITIONAL"),
         "connect_timeout": int(os.getenv("MYSQL_CONNECT_TIMEOUT", "10")),
+        # Compatibility parameters for older MySQL versions (Issue #31)
+        "auth_plugin": os.getenv("MYSQL_AUTH_PLUGIN"),
+        "use_pure": os.getenv("MYSQL_USE_PURE", "false").lower() == "true",
+        "raise_on_warnings": os.getenv("MYSQL_RAISE_ON_WARNINGS", "false").lower() == "true",
     }
+    
+    # Remove None values
+    config = {k: v for k, v in config.items() if v is not None}
     
     # Allow overriding collation/charset to be empty if needed for older versions.
     if config["charset"] == "": del config["charset"]
