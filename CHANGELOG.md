@@ -5,46 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-03-17
+## [0.3.0] - 2026-05-31
 
 ### Fixed
-- Fixed `SHOW DATABASES` and all `SHOW` commands returning `Error calling tool execute_sql: {}` (issue #48) — removed special-case handling for `SHOW TABLES`; all result-set queries now use unified CSV output
-- Fixed error messages being empty when `str(e)` was blank — now uses `e.msg` attribute from MySQL connector
-- Fixed NULL values being rendered as the string `"None"` in query results — now rendered as empty strings
+- **Asynchronous Reliability:** Refactored all blocking database and SSH operations to use background threads via `anyio.to_thread.run_sync`. This prevents the server from hanging in environments like Windows 11 (Issue #54).
+- **Graceful Error Reporting:** Implemented global exception handling in tool calls to return clear, actionable error messages to AI agents and users instead of silent failures (Issue #50).
+- **Metadata Formatting:** Improved result set handling for `DESCRIBE`, `SHOW COLUMNS`, and other inspection queries, including explicit `NULL` value rendering (PR #38).
+- **SQL Injection Risk:** Added strict regex validation for all database and table identifiers (PR #86).
 
 ### Added
-- `MYSQL_DATABASE` is now optional (issue #68, #81) — when omitted, the server operates in multi-database mode: `list_resources` returns all user databases, and you can switch with `USE <database>`
-- SSE/HTTP transport support (issue #60) — set `MCP_TRANSPORT=sse` to run as an HTTP server; configurable via `MCP_SSE_HOST` (default `127.0.0.1`) and `MCP_SSE_PORT` (default `8000`); requires `pip install mysql_mcp_server[sse]`
-- `MYSQL_CONNECT_TIMEOUT` environment variable (default `10` seconds) for controlling connection timeout
-- `validate_identifier()` utility function for strict MySQL identifier validation (`^[a-zA-Z0-9_$]+$`)
-- `read_resource` now supports `mysql://database/<name>` URIs to list tables within a specific database
+- **Multi-Database Mode:** `MYSQL_DATABASE` is now optional. When omitted, the server lists all available databases and supports `USE <database>` or fully qualified table names (PR #86, Issue #68, #81).
+- **SSH Tunneling:** Built-in support for secure remote database connections via an SSH jump host using `MYSQL_SSH_ENABLE` (PR #64, contributed by @GeorgeLeex).
+- **New Inspection Tools:**
+    - `get_schema_info`: Detailed column metadata, types, and comments.
+    - `get_table_sample`: Quick data previews to understand table content (PR #64, contributed by @GeorgeLeex).
+- **SSE/HTTP Transport:** Support for running as an HTTP server by setting `MCP_TRANSPORT=sse` (PR #86).
+- **SSL/TLS Support:** Added `MYSQL_SSL_MODE` for encrypted connections.
+- **Environment Management:** Added `.env` support and `.env.example` file (PR #69).
 
 ### Security
-- Replaced ad-hoc table name validation with `validate_identifier()` using a strict regex whitelist
-- Upgraded `black` dev dependency to `>=24.0.0` to fix ReDoS vulnerability (CVE-2024-21503)
-- Synchronized `mcp>=1.2.0` in `requirements.txt` to match `pyproject.toml`
+- Added `ToolAnnotations` to `execute_sql` to flag potentially destructive operations to AI agents (PR #78).
+- Dockerfile now runs as a non-root `appuser` and follows best practices for secret management.
+- Masked sensitive information (passwords, SSH keys) in server logs.
 
 ### Changed
-- `get_db_config()` now only requires `MYSQL_USER` and `MYSQL_PASSWORD`; `MYSQL_DATABASE` is optional
-- `main()` refactored into `_run_stdio_server()` and `_run_sse_server()` for clarity
-- `list_resources()` returns databases (filtered by system databases) when no default database is configured
-
-## [0.2.3] - 2026-03-17
-
-### Fixed
-- Fixed empty password validation: `MYSQL_PASSWORD` can now be an empty string for passwordless MySQL (issue #43)
-- Added `list_resource_templates` handler to prevent errors in Visual Studio Code (issue #77)
-- Fixed SQL injection risk in `read_resource` by validating table names and using backtick-quoted identifiers (issue #84)
-- Fixed README VSCode `mcp.json` example — missing closing brace (issue #42)
-
-### Added
-- SSL/TLS support via `MYSQL_SSL_MODE` env var (`DISABLED`, `REQUIRED`, `VERIFY_CA`, `VERIFY_IDENTITY`) (issue #71)
-- Optional `MYSQL_SSL_CA` env var for specifying CA certificate path
-
-### Security
-- Dockerfile no longer exposes `MYSQL_PASSWORD` via `ENV`; secrets should be passed at `docker run` time
-- Dockerfile now runs as a non-root user (`appuser`)
-- Upgraded minimum `mcp` dependency to `>=1.2.0` to resolve known DoS and DNS-rebinding vulnerabilities
+- Refactored server initialization into distinct STDIO and SSE transport handlers.
+- Updated minimum `mcp` dependency to `1.2.0` for improved stability and security.
 
 ## [0.2.2] - 2025-04-18
 
