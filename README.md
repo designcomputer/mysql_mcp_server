@@ -1,15 +1,15 @@
 [![Tests](https://github.com/designcomputer/mysql_mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/designcomputer/mysql_mcp_server/actions)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/mysql-mcp-server)](https://pypi.org/project/mysql-mcp-server/)
-[![Smithery Badge](https://smithery.ai/badge/mysql-mcp-server)](https://smithery.ai/server/mysql-mcp-server)
+[![Smithery Badge](https://smithery.ai/badge/@designcomputer/mysql-mcp-server)](https://smithery.ai/server/designcomputer/mysql-mcp-server)
 [![AgentAudit Safe](https://img.shields.io/badge/AgentAudit-safe-brightgreen)](https://www.agentaudit.dev/packages/mysql-mcp-server)
 [![MCPSafe](https://api.mcpsafe.io/badge/github/designcomputer/mysql_mcp_server.svg)](https://mcpsafe.io/registry/github/designcomputer/mysql_mcp_server)
 # MySQL MCP Server
 A Model Context Protocol (MCP) implementation that enables secure interaction with MySQL databases. This server component facilitates communication between AI applications (hosts/clients) and MySQL databases, making database exploration and analysis safer and more structured through a controlled interface.
 
-> **Note**: MySQL MCP Server supports both standard input/output (STDIO) and Streamable HTTP (SSE) transport modes. The SSE mode is recommended for remote hosting and is required for Smithery hosted deployments.
+> **Note**: MySQL MCP Server supports both standard input/output (STDIO) and Streamable HTTP (SSE) transport modes. The SSE mode is recommended for remote/self-hosted deployments.
 
 ## Hosted deployment
-A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/designcomputer-mysql-mcp-server) and [Smithery](https://smithery.ai/server/mysql-mcp-server).
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/designcomputer-mysql-mcp-server).
 
 ## Features
 - List available MySQL tables as resources
@@ -30,9 +30,9 @@ pip install mysql-mcp-server
 ```
 
 ### Installing via Smithery
-To install MySQL MCP Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/mysql-mcp-server):
+To install MySQL MCP Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/designcomputer/mysql-mcp-server):
 ```bash
-npx -y @smithery/cli install mysql-mcp-server --client claude
+npx -y @smithery/cli install designcomputer/mysql-mcp-server --client claude
 ```
 
 ## Configuration
