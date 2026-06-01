@@ -1,7 +1,18 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 
+# Use container runtime for HTTP/SSE hosting
+runtime: container
+
+# Build configuration
+build:
+  dockerfile: Dockerfile
+  dockerBuildPath: .
+
 startCommand:
-  type: stdio
+  type: http
+  # HTTP-specific settings for Smithery hosting
+  http:
+    endpoint: "/sse"
   configSchema:
     # JSON Schema defining the configuration options for the MCP.
     type: object
@@ -28,19 +39,17 @@ startCommand:
         type: string
         description: "The database to connect to."
   commandFunction:
-    # A function that produces the CLI command to start the MCP on stdio.
+    # A function that produces the CLI command to start the MCP on HTTP/SSE.
     |-
     (config) => ({ 
-      command: 'docker', 
-      args: [
-        'run',
-        '-i',
-        '--rm',
-        '-e', `MYSQL_HOST=${config.mysqlHost}`,
-        '-e', `MYSQL_PORT=${config.mysqlPort}`,
-        '-e', `MYSQL_USER=${config.mysqlUser}`,
-        '-e', `MYSQL_PASSWORD=${config.mysqlPassword}`,
-        '-e', `MYSQL_DATABASE=${config.mysqlDatabase}`,
-        'smithery/mysql-mcp-server:latest'
-      ]
+      command: 'python', 
+      args: ['-m', 'mysql_mcp_server.server'],
+      env: {
+        MCP_TRANSPORT: 'sse',
+        MYSQL_HOST: config.mysqlHost,
+        MYSQL_PORT: config.mysqlPort.toString(),
+        MYSQL_USER: config.mysqlUser,
+        MYSQL_PASSWORD: config.mysqlPassword,
+        MYSQL_DATABASE: config.mysqlDatabase
+      }
     })

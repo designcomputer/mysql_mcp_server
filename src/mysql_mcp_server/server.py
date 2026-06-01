@@ -469,16 +469,23 @@ async def _run_sse_server():
             await app.run(streams[0], streams[1], app.create_initialization_options())
         return Response()
 
-    # Define the Starlette application with SSE routes.
+    async def health_check(request):
+        """Simple health check endpoint."""
+        return Response("MySQL MCP Server is running", media_type="text/plain")
+
+    # Define the Starlette application with SSE routes and a health check.
     starlette_app = Starlette(
         routes=[
+            Route("/", endpoint=health_check),
             Route("/sse", endpoint=handle_sse),
             Mount("/messages/", app=sse.handle_post_message),
         ]
     )
 
-    host = os.getenv("MCP_SSE_HOST", "127.0.0.1")
-    port = int(os.getenv("MCP_SSE_PORT", "8000"))
+    host = os.getenv("MCP_SSE_HOST", "0.0.0.0")
+    # Support both MCP_SSE_PORT and standard PORT environment variables.
+    port_str = os.getenv("MCP_SSE_PORT") or os.getenv("PORT") or "8000"
+    port = int(port_str)
     
     # Configure and start the Uvicorn server.
     server_config = uvicorn.Config(starlette_app, host=host, port=port, log_level="info")
