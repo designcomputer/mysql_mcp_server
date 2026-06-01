@@ -20,6 +20,9 @@ uv.lock
 .vscode/
 .idea/
 
+# Claude Code
+.claude/
+
 # Distribution directories
 *.dist-info/
 
