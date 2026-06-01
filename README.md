@@ -1,6 +1,6 @@
 [![Tests](https://github.com/designcomputer/mysql_mcp_server/actions/workflows/test.yml/badge.svg)](https://github.com/designcomputer/mysql_mcp_server/actions)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/mysql-mcp-server)](https://pypi.org/project/mysql-mcp-server/)
-[![Smithery Badge](https://smithery.ai/badge/@designcomputer/mysql-mcp-server)](https://smithery.ai/server/designcomputer/mysql-mcp-server)
+[![Smithery Badge](https://smithery.ai/badge/designcomputer/mysql-mcp-server)](https://smithery.ai/server/designcomputer/mysql-mcp-server)
 [![AgentAudit Safe](https://img.shields.io/badge/AgentAudit-safe-brightgreen)](https://www.agentaudit.dev/packages/mysql-mcp-server)
 [![MCPSafe](https://api.mcpsafe.io/badge/github/designcomputer/mysql_mcp_server.svg)](https://mcpsafe.io/registry/github/designcomputer/mysql_mcp_server)
 # MySQL MCP Server
