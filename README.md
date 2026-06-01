@@ -8,8 +8,9 @@ A Model Context Protocol (MCP) implementation that enables secure interaction wi
 
 > **Note**: MySQL MCP Server supports both standard input/output (STDIO) and Streamable HTTP (SSE) transport modes. The SSE mode is recommended for remote/self-hosted deployments.
 
-## Hosted deployment
-A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/designcomputer-mysql-mcp-server).
+## Deployment options
+- **Hosted** — [Fronteir AI](https://fronteir.ai/mcp/designcomputer-mysql-mcp-server) runs the server for you; no local setup required.
+- **Local** — [Smithery](https://smithery.ai/server/designcomputer/mysql-mcp-server) installs and runs the server on your own machine.
 
 ## Features
 - List available MySQL tables as resources
