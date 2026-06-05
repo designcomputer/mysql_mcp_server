@@ -34,6 +34,11 @@ To install MySQL MCP Server for Claude Desktop automatically via [Smithery](http
 npx -y @smithery/cli install designcomputer/mysql-mcp-server --client claude
 ```
 
+### Installing via Claude Code CLI
+```bash
+claude mcp add --transport stdio designcomputer-mysql_mcp_server uvx mysql_mcp_server
+```
+
 ## Configuration
 Set the following environment variables:
 ```bash
