@@ -18,9 +18,9 @@ A Model Context Protocol (MCP) implementation that enables secure interaction wi
 - Execute SQL queries with proper error handling
 - **Multi-database mode** (Optional `MYSQL_DATABASE`)
 - **SSE/HTTP transport support** (`MCP_TRANSPORT=sse`)
-- **SSH Tunneling support** (Contributed by [GeorgeLeex](https://github.com/GeorgeLeex))
-- **Comprehensive schema information** (Contributed by [GeorgeLeex](https://github.com/GeorgeLeex))
-- **Table data sampling** (Contributed by [GeorgeLeex](https://github.com/GeorgeLeex))
+- **SSH Tunneling support**
+- **Comprehensive schema information**
+- **Table data sampling**
 - Secure database access through environment variables
 - Comprehensive logging
 
