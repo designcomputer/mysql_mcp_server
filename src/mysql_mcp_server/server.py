@@ -13,7 +13,10 @@ from typing import List, Optional, Tuple, Any
 import anyio
 from mysql.connector import connect, Error
 from mcp.server import Server
-from mcp.types import Resource, Tool, TextContent, ToolAnnotations, ResourceTemplate
+from mcp.types import (
+    Resource, Tool, TextContent, ToolAnnotations, ResourceTemplate,
+    Prompt, PromptArgument, PromptMessage, GetPromptResult,
+)
 from pydantic import AnyUrl
 from dotenv import load_dotenv
 
@@ -287,47 +290,78 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="execute_sql",
-            description="Execute an SQL query on the MySQL server",
+            description=(
+                "Execute a SQL statement against the MySQL server. "
+                "Use for SELECT, DML (INSERT/UPDATE/DELETE), SHOW, DESCRIBE, and ad-hoc queries. "
+                "Supports cross-database queries using database.table notation. "
+                "Single statements only — use fully qualified names instead of USE statements."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The SQL query to execute"
+                        "description": "The SQL statement to execute. Single statements only."
                     }
                 },
                 "required": ["query"]
             },
             annotations=ToolAnnotations(
                 title="Execute SQL",
-                readOnlyHint=False, # This tool can perform write operations.
-                destructiveHint=True # Warn agents that this can be dangerous.
+                readOnlyHint=False,
+                destructiveHint=True
             )
         ),
         Tool(
             name="get_schema_info",
-            description="Get comprehensive schema information (Contributed by GeorgeLeex)",
+            description=(
+                "Get column metadata for a table or all tables in the configured database: "
+                "column names, data types, nullability, default values, and comments. "
+                "Call this before querying an unfamiliar table. "
+                "Omit table_name to see all tables at once. "
+                "Accepts bare table names (uses MYSQL_DATABASE) or database.table for cross-database lookups."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "table_name": {
                         "type": "string",
-                        "description": "Optional: table name, or database.table for cross-database queries."
+                        "description": "Optional: bare table name, or database.table for a cross-database lookup."
                     }
                 }
-            }
+            },
+            annotations=ToolAnnotations(
+                title="Get Schema Info",
+                readOnlyHint=True,
+                destructiveHint=False
+            )
         ),
         Tool(
             name="get_table_sample",
-            description="Get a sample of data from a table (Contributed by GeorgeLeex)",
+            description=(
+                "Fetch a small sample of rows from a table to understand its data format and content. "
+                "Use alongside get_schema_info before writing complex queries. "
+                "Accepts bare table names (uses MYSQL_DATABASE) or database.table for cross-database lookups."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "table_name": {"type": "string", "description": "Table to sample, or database.table for cross-database queries."},
-                    "limit": {"type": "integer", "description": "Rows to return (max 20)"}
+                    "table_name": {
+                        "type": "string",
+                        "description": "Table to sample. Use database.table notation for cross-database queries."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of rows to return (default 5, max 20)."
+                    }
                 },
                 "required": ["table_name"]
-            }
+            },
+            annotations=ToolAnnotations(
+                title="Get Table Sample",
+                readOnlyHint=True,
+                destructiveHint=False
+            )
         )
     ]
 
@@ -375,6 +409,81 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # Return the error as a TextContent so the client can display it.
         # This addresses Issue #50 where errors were not being reported clearly.
         return [TextContent(type="text", text=f"Error calling tool {name}: {str(e)}")]
+
+@app.list_prompts()
+async def list_prompts() -> list[Prompt]:
+    return [
+        Prompt(
+            name="explore_database",
+            description=(
+                "Systematically explore the database: discover available tables, "
+                "inspect their schemas, sample the data, and summarize what's there."
+            ),
+            arguments=[]
+        ),
+        Prompt(
+            name="analyze_table",
+            description=(
+                "Deep-dive into a specific table: retrieve its schema, sample its data, "
+                "and suggest useful queries."
+            ),
+            arguments=[
+                PromptArgument(
+                    name="table_name",
+                    description="Table to analyze. Use database.table notation for cross-database queries.",
+                    required=True
+                )
+            ]
+        ),
+    ]
+
+@app.get_prompt()
+async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
+    if name == "explore_database":
+        return GetPromptResult(
+            description="Systematic database exploration workflow",
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=TextContent(type="text", text=(
+                        "Explore this MySQL database systematically:\n\n"
+                        "1. Call list_resources to discover available tables "
+                        "(or databases when MYSQL_DATABASE is not set).\n"
+                        "2. Call get_schema_info with no table_name to see all table structures at once, "
+                        "or for each table of interest individually.\n"
+                        "3. Call get_table_sample on 2–3 representative tables to understand "
+                        "data format and content.\n"
+                        "4. Summarize: describe what each table stores, note relationships "
+                        "(foreign keys, shared ID columns), and suggest 3–5 queries "
+                        "an analyst would find useful."
+                    ))
+                )
+            ]
+        )
+    elif name == "analyze_table":
+        table_name = (arguments or {}).get("table_name", "")
+        return GetPromptResult(
+            description=f"Analysis workflow for: {table_name}",
+            messages=[
+                PromptMessage(
+                    role="user",
+                    content=TextContent(type="text", text=(
+                        f"Analyze the table `{table_name}`:\n\n"
+                        f"1. Call get_schema_info with table_name=\"{table_name}\" "
+                        "to retrieve column names, types, nullability, and comments.\n"
+                        f"2. Call get_table_sample with table_name=\"{table_name}\" "
+                        "to see representative rows.\n"
+                        "3. Based on the schema and sample, provide:\n"
+                        "   - A plain-English description of what this table stores\n"
+                        "   - Notable columns (primary keys, foreign keys, important fields)\n"
+                        "   - Data quality observations (NULLs, patterns, value ranges)\n"
+                        "   - 3–5 example SQL queries useful for analysis"
+                    ))
+                )
+            ]
+        )
+    else:
+        raise ValueError(f"Unknown prompt: {name}")
 
 async def run_query(query: str) -> list[TextContent]:
     """

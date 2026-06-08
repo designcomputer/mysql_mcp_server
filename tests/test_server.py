@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from mysql_mcp_server.server import app, list_tools, list_resources, read_resource, call_tool, validate_identifier, parse_table_arg, get_db_config
+from mysql_mcp_server.server import app, list_tools, list_prompts, get_prompt, list_resources, read_resource, call_tool, validate_identifier, parse_table_arg, get_db_config
 from pydantic import AnyUrl
 
 
@@ -94,6 +94,40 @@ def test_get_db_config_missing_password(monkeypatch):
 
     with pytest.raises(ValueError, match="Missing required database configuration"):
         get_db_config()
+
+
+@pytest.mark.asyncio
+async def test_list_prompts():
+    prompts = await list_prompts()
+    assert len(prompts) == 2
+    names = {p.name for p in prompts}
+    assert "explore_database" in names
+    assert "analyze_table" in names
+
+
+@pytest.mark.asyncio
+async def test_get_prompt_explore_database():
+    result = await get_prompt("explore_database", None)
+    assert len(result.messages) == 1
+    assert "list_resources" in result.messages[0].content.text
+    assert "get_schema_info" in result.messages[0].content.text
+    assert "get_table_sample" in result.messages[0].content.text
+
+
+@pytest.mark.asyncio
+async def test_get_prompt_analyze_table():
+    result = await get_prompt("analyze_table", {"table_name": "orders"})
+    text = result.messages[0].content.text
+    assert "orders" in text
+    assert "get_schema_info" in text
+    assert "get_table_sample" in text
+
+
+@pytest.mark.asyncio
+async def test_get_prompt_unknown():
+    response = await call_tool.__wrapped__("unknown_prompt", {}) if hasattr(call_tool, "__wrapped__") else None
+    with pytest.raises(ValueError, match="Unknown prompt"):
+        await get_prompt("no_such_prompt", {})
 
 
 def test_parse_table_arg_bare():
