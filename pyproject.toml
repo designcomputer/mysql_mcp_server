@@ -4,6 +4,19 @@ version = "0.3.1"
 description = "A Model Context Protocol (MCP) server that enables secure interaction with MySQL databases. This server allows AI assistants to list tables, read data, and execute SQL queries through a controlled interface, making database exploration and analysis safer and more structured."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+keywords = ["mcp", "mysql", "database", "ai", "llm", "model-context-protocol"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "mcp>=1.2.0",
     "mysql-connector-python>=9.1.0",
@@ -18,6 +31,12 @@ sse = [
 [[project.authors]]
 name = "Dana K. Williams"
 email = "dana_w@designcomputer.com"
+
+[project.urls]
+Homepage = "https://github.com/designcomputer/mysql_mcp_server"
+Repository = "https://github.com/designcomputer/mysql_mcp_server"
+Issues = "https://github.com/designcomputer/mysql_mcp_server/issues"
+Changelog = "https://github.com/designcomputer/mysql_mcp_server/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
