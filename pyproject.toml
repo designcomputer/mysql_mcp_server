@@ -30,6 +30,9 @@ sse = [
 
 [[project.authors]]
 name = "Dana K. Williams"
+
+[[project.maintainers]]
+name = "Dana K. Williams"
 email = "dana_w@designcomputer.com"
 
 [project.urls]
