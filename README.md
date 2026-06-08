@@ -52,12 +52,15 @@ MYSQL_DATABASE=your_database # Optional: Omit for multi-database mode
 MYSQL_SSL_MODE=DISABLED  # DISABLED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY
 MYSQL_CONNECT_TIMEOUT=10 # Timeout in seconds
 
+# Connection behaviour (Optional)
+MYSQL_SQL_MODE=TRADITIONAL           # SQL mode applied to the connection (default: TRADITIONAL)
+
 # Compatibility (Optional)
 MYSQL_CHARSET=utf8mb4
 MYSQL_COLLATION=utf8mb4_unicode_ci
 MYSQL_AUTH_PLUGIN=       # e.g., mysql_native_password for older MySQL versions
-MYSQL_USE_PURE=false     # Use pure Python implementation
-MYSQL_RAISE_ON_WARNINGS=false
+MYSQL_USE_PURE=false     # Force the pure-Python connector (default: false)
+MYSQL_RAISE_ON_WARNINGS=false        # Raise on SQL warnings (default: false)
 
 # SSE Transport (Optional)
 MCP_TRANSPORT=stdio      # stdio or sse
@@ -74,6 +77,18 @@ MYSQL_SSH_REMOTE_HOST=localhost # Host from the perspective of the jump host
 MYSQL_SSH_REMOTE_PORT=3306
 MYSQL_LOCAL_PORT=3330
 ```
+
+### `.env` file loading
+
+On startup the server automatically loads a `.env` file via `python-dotenv`, so for local use you can simply:
+
+```bash
+cp .env.example .env   # then edit with your credentials
+```
+
+The file is read from the **process working directory** (and parent directories), which works when you run the server yourself from the project folder.
+
+> ⚠️ **Claude Code / Claude Desktop:** these hosts launch the server from their own working directory, so the project's `.env` will **not** be found and you'll see `Missing required database configuration`. Put your `MYSQL_*` values in the `env` block of the MCP config (shown in the Usage section below) rather than relying on `.env`.
 
 ### Multi-Database Mode
 When `MYSQL_DATABASE` is not set, the server operates in multi-database mode:
@@ -103,6 +118,23 @@ Fetches a representative sample of data.
 - **Use Case:** Quickly understand data formats and content without fetching large result sets.
 - **Cross-database:** Pass `database.table` to sample a table outside `MYSQL_DATABASE`; bare names use the configured database.
 - **Identifier rules:** Names must contain only alphanumeric characters, underscores, and `$` (dots are allowed as a separator between database and table names).
+
+## Available Prompts
+
+In addition to tools, the server exposes **MCP prompts** — guided, multi-step workflows that a client can launch on demand. In Claude Code they appear as slash commands (`/mcp__<server>__<prompt>`); in Claude Desktop they appear in the prompts (`+`) menu.
+
+| Prompt | Arguments | Description |
+| --- | --- | --- |
+| `explore_database` | *(none)* | Systematically explore the database: discover available tables, inspect their schemas, sample the data, and summarize what's there. |
+| `analyze_table` | `table_name` *(required)* | Deep-dive into a specific table: retrieve its schema, sample its data, and suggest useful queries. Accepts `database.table` notation for cross-database lookups. |
+
+**Example (Claude Code):**
+```
+/mcp__mysql__explore_database
+/mcp__mysql__analyze_table customers
+```
+
+Both prompts orchestrate the existing `get_schema_info` and `get_table_sample` tools; `explore_database` also uses resource listing to enumerate tables.
 
 ## Usage
 ### With Claude Desktop
