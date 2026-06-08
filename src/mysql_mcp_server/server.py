@@ -40,6 +40,13 @@ def validate_identifier(name: str) -> str:
         raise ValueError(f"Invalid identifier '{name}': only alphanumeric, underscore, and $ are allowed")
     return name
 
+def parse_table_arg(name: str) -> Tuple[Optional[str], str]:
+    """Split an optional 'database.table' argument into (db, table) parts, validating each."""
+    if "." in name:
+        db, tbl = name.split(".", 1)
+        return validate_identifier(db), validate_identifier(tbl)
+    return None, validate_identifier(name)
+
 @contextmanager
 def maybe_ssh_tunnel():
     """
@@ -305,7 +312,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "table_name": {
                         "type": "string",
-                        "description": "Optional: Specific table name."
+                        "description": "Optional: table name, or database.table for cross-database queries."
                     }
                 }
             }
@@ -316,7 +323,7 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "table_name": {"type": "string", "description": "Table to sample"},
+                    "table_name": {"type": "string", "description": "Table to sample, or database.table for cross-database queries."},
                     "limit": {"type": "integer", "description": "Rows to return (max 20)"}
                 },
                 "required": ["table_name"]
@@ -336,22 +343,28 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             query = arguments.get("query")
             if not query:
                 raise ValueError("Query is required")
+            if ";" in query.strip().rstrip(";"):
+                return [TextContent(type="text", text=(
+                    "Only single statements are supported. "
+                    "Instead of USE statements, use fully qualified names: database.table"
+                ))]
             return await run_query(query)
-        
+
         elif name == "get_schema_info":
             table_name = arguments.get("table_name")
             if table_name:
-                # Fetch detailed column metadata for a single table.
-                query = f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{validate_identifier(table_name)}' ORDER BY ORDINAL_POSITION"
+                db, tbl = parse_table_arg(table_name)
+                schema_filter = f"TABLE_SCHEMA = '{db}'" if db else "TABLE_SCHEMA = DATABASE()"
+                query = f"SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_COMMENT FROM information_schema.COLUMNS WHERE {schema_filter} AND TABLE_NAME = '{tbl}' ORDER BY ORDINAL_POSITION"
             else:
-                # Fetch summary information for all tables.
                 query = "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION"
             return await run_query(query)
 
         elif name == "get_table_sample":
-            table_name = validate_identifier(arguments.get("table_name"))
+            db, tbl = parse_table_arg(arguments.get("table_name"))
             limit = min(arguments.get("limit", 5), 20)
-            query = f"SELECT * FROM `{table_name}` LIMIT {limit}"
+            table_ref = f"`{db}`.`{tbl}`" if db else f"`{tbl}`"
+            query = f"SELECT * FROM {table_ref} LIMIT {limit}"
             return await run_query(query)
 
         else:

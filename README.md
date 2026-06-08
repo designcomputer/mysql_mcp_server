@@ -94,17 +94,15 @@ Executes any standard SQL query.
 Provides detailed metadata about database structures.
 - **Arguments:** `table_name` (optional string)
 - **Output:** Column names, types, nullability, default values, and comments.
-- **Scope:** Only queries tables in the database set by `MYSQL_DATABASE`. Does not support `database.table` notation.
-- **Identifier rules:** Table names must contain only alphanumeric characters, underscores, and `$`.
+- **Cross-database:** Pass `database.table` to query a table outside `MYSQL_DATABASE`; bare names use the configured database.
+- **Identifier rules:** Names must contain only alphanumeric characters, underscores, and `$` (dots are allowed as a separator between database and table names).
 
 ### `get_table_sample`
 Fetches a representative sample of data.
 - **Arguments:** `table_name` (string), `limit` (optional integer, max 20)
 - **Use Case:** Quickly understand data formats and content without fetching large result sets.
-- **Scope:** Only queries tables in the database set by `MYSQL_DATABASE`. Does not support `database.table` notation.
-- **Identifier rules:** Table names must contain only alphanumeric characters, underscores, and `$`.
-
-> **Tool Scope:** `execute_sql` can query any database using `database.table` notation. `get_schema_info` and `get_table_sample` are limited to the database specified by `MYSQL_DATABASE`. If you need schema or sample data from a different database, use `execute_sql` instead (e.g., `DESCRIBE other_db.mytable`).
+- **Cross-database:** Pass `database.table` to sample a table outside `MYSQL_DATABASE`; bare names use the configured database.
+- **Identifier rules:** Names must contain only alphanumeric characters, underscores, and `$` (dots are allowed as a separator between database and table names).
 
 ## Usage
 ### With Claude Desktop
@@ -191,7 +189,7 @@ pytest
 ```
 
 ## Security Considerations
-- **Identifier Validation:** Table and database names passed to `get_schema_info` and `get_table_sample` are validated against a strict whitelist (alphanumeric, underscore, and `$` only). Dots and special characters are rejected to prevent SQL injection.
+- **Identifier Validation:** Table and database names passed to `get_schema_info` and `get_table_sample` are validated against a strict whitelist (alphanumeric, underscore, and `$` only; a single dot is allowed as a `database.table` separator). Other special characters are rejected to prevent SQL injection.
 - **Encrypted Access:** Full support for SSL/TLS and SSH Tunneling for secure remote connections.
 - **Log Privacy:** Passwords and SSH private keys are automatically masked in server logs.
 - **Least Privilege:** Always use a dedicated MySQL user with minimal required permissions.

@@ -1,5 +1,6 @@
 import pytest
-from mysql_mcp_server.server import app, list_tools, list_resources, read_resource, call_tool, validate_identifier, get_db_config
+from unittest.mock import patch, MagicMock
+from mysql_mcp_server.server import app, list_tools, list_resources, read_resource, call_tool, validate_identifier, parse_table_arg, get_db_config
 from pydantic import AnyUrl
 
 
@@ -93,6 +94,70 @@ def test_get_db_config_missing_password(monkeypatch):
 
     with pytest.raises(ValueError, match="Missing required database configuration"):
         get_db_config()
+
+
+def test_parse_table_arg_bare():
+    """Bare table name returns (None, name)."""
+    assert parse_table_arg("users") == (None, "users")
+
+
+def test_parse_table_arg_qualified():
+    """database.table format returns (db, table)."""
+    assert parse_table_arg("mydb.users") == ("mydb", "users")
+
+
+def test_parse_table_arg_invalid():
+    """Invalid characters in either part raise ValueError."""
+    with pytest.raises(ValueError, match="Invalid identifier"):
+        parse_table_arg("bad db.users")
+    with pytest.raises(ValueError, match="Invalid identifier"):
+        parse_table_arg("mydb.bad-table")
+
+
+@pytest.mark.asyncio
+async def test_execute_sql_multi_statement():
+    """Multi-statement queries return a helpful error instead of MySQL's cryptic message."""
+    response = await call_tool("execute_sql", {"query": "SELECT 1; SELECT 2"})
+    assert len(response) == 1
+    assert "single statements" in response[0].text
+    assert "database.table" in response[0].text
+
+
+@pytest.mark.asyncio
+async def test_get_schema_info_cross_database(monkeypatch):
+    """get_schema_info with database.table uses explicit TABLE_SCHEMA filter."""
+    monkeypatch.setenv("MYSQL_USER", "u")
+    monkeypatch.setenv("MYSQL_PASSWORD", "p")
+
+    captured = {}
+
+    async def fake_run_query(query):
+        captured["query"] = query
+        return []
+
+    with patch("mysql_mcp_server.server.run_query", side_effect=fake_run_query):
+        await call_tool("get_schema_info", {"table_name": "otherdb.mytable"})
+
+    assert "TABLE_SCHEMA = 'otherdb'" in captured["query"]
+    assert "TABLE_NAME = 'mytable'" in captured["query"]
+
+
+@pytest.mark.asyncio
+async def test_get_table_sample_cross_database(monkeypatch):
+    """get_table_sample with database.table uses backtick-quoted db.table reference."""
+    monkeypatch.setenv("MYSQL_USER", "u")
+    monkeypatch.setenv("MYSQL_PASSWORD", "p")
+
+    captured = {}
+
+    async def fake_run_query(query):
+        captured["query"] = query
+        return []
+
+    with patch("mysql_mcp_server.server.run_query", side_effect=fake_run_query):
+        await call_tool("get_table_sample", {"table_name": "otherdb.mytable"})
+
+    assert "`otherdb`.`mytable`" in captured["query"]
 
 
 @pytest.mark.asyncio
