@@ -583,7 +583,42 @@ async def _run_sse_server():
         raise
 
     logger.info("Starting MySQL MCP server (SSE)...")
-    sse = SseServerTransport("/messages/")
+
+    host = os.getenv("MCP_SSE_HOST", "0.0.0.0")
+    port_str = os.getenv("MCP_SSE_PORT") or os.getenv("PORT") or "8000"
+    port = int(port_str)
+
+    # Build security settings with DNS rebinding protection.
+    # allowed_hosts controls which Host header values are accepted; without this
+    # a DNS rebinding attack can relay requests through the victim's browser.
+    try:
+        from mcp.server.transport_security import TransportSecuritySettings
+
+        allowed_hosts_env = os.getenv("MCP_SSE_ALLOWED_HOSTS", "")
+        if allowed_hosts_env:
+            allowed_hosts = [h.strip() for h in allowed_hosts_env.split(",") if h.strip()]
+        else:
+            allowed_hosts = [f"localhost:{port}", f"127.0.0.1:{port}"]
+            if host not in ("0.0.0.0", "127.0.0.1", "localhost", "::"):
+                allowed_hosts.append(f"{host}:{port}")
+
+        logger.info(
+            "SSE DNS rebinding protection enabled. Allowed hosts: %s. "
+            "Override with MCP_SSE_ALLOWED_HOSTS (comma-separated).",
+            ", ".join(allowed_hosts),
+        )
+        security_settings = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=allowed_hosts,
+        )
+    except ImportError:
+        logger.warning(
+            "mcp.server.transport_security not available (upgrade mcp>=1.9.0 for DNS rebinding protection). "
+            "Running without Origin/Host validation."
+        )
+        security_settings = None
+
+    sse = SseServerTransport("/messages/", security_settings=security_settings) if security_settings is not None else SseServerTransport("/messages/")
 
     async def handle_sse(request):
         """Handler for the SSE connection endpoint."""
@@ -604,11 +639,6 @@ async def _run_sse_server():
         ]
     )
 
-    host = os.getenv("MCP_SSE_HOST", "0.0.0.0")
-    # Support both MCP_SSE_PORT and standard PORT environment variables.
-    port_str = os.getenv("MCP_SSE_PORT") or os.getenv("PORT") or "8000"
-    port = int(port_str)
-    
     # Configure and start the Uvicorn server.
     server_config = uvicorn.Config(starlette_app, host=host, port=port, log_level="info")
     server = uvicorn.Server(server_config)

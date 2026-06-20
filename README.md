@@ -66,6 +66,7 @@ MYSQL_RAISE_ON_WARNINGS=false        # Raise on SQL warnings (default: false)
 MCP_TRANSPORT=stdio      # stdio or sse
 MCP_SSE_HOST=0.0.0.0     # Listen on all interfaces (required for Docker/hosting)
 PORT=8000                # HTTP port (fallback for MCP_SSE_PORT)
+MCP_SSE_ALLOWED_HOSTS=   # Comma-separated allowed Host headers (default: localhost:{port},127.0.0.1:{port})
 
 # SSH Tunneling (Optional)
 MYSQL_SSH_ENABLE=false   # Set to true to enable
@@ -225,6 +226,25 @@ pytest
 - **Encrypted Access:** Full support for SSL/TLS and SSH Tunneling for secure remote connections.
 - **Log Privacy:** Passwords and SSH private keys are automatically masked in server logs.
 - **Least Privilege:** Always use a dedicated MySQL user with minimal required permissions.
+- **SSE transport has no built-in authentication.** The SSE server binds to `0.0.0.0` by default and accepts connections without credentials. If you expose it beyond localhost, place it behind a reverse proxy (nginx, Caddy, Traefik) that enforces authentication. Example with nginx and HTTP Basic Auth:
+
+  ```nginx
+  location /sse {
+      auth_basic "MCP";
+      auth_basic_user_file /etc/nginx/.htpasswd;
+      proxy_pass http://127.0.0.1:8000;
+      proxy_set_header Host $host;
+      proxy_buffering off;
+  }
+  location /messages/ {
+      auth_basic "MCP";
+      auth_basic_user_file /etc/nginx/.htpasswd;
+      proxy_pass http://127.0.0.1:8000;
+      proxy_set_header Host $host;
+  }
+  ```
+
+  Set `MCP_SSE_HOST=127.0.0.1` so the server only listens on loopback and the proxy is the sole public entry point. Set `MCP_SSE_ALLOWED_HOSTS` to the public hostname your proxy forwards (e.g. `MCP_SSE_ALLOWED_HOSTS=myserver.example.com:443`).
 
 See [SECURITY.md](SECURITY.md) for a comprehensive guide on securing your deployment.
 
