@@ -39,6 +39,13 @@ npx -y @smithery/cli install designcomputer/mysql-mcp-server --client claude
 claude mcp add --transport stdio designcomputer-mysql_mcp_server uvx mysql_mcp_server
 ```
 
+### Installing via Autohand Code CLI
+```bash
+autohand mcp add mysql env MYSQL_HOST=localhost MYSQL_PORT=3306 MYSQL_USER=your_username MYSQL_PASSWORD=your_password MYSQL_DATABASE=your_database uvx mysql_mcp_server
+```
+
+Add `--scope project` after `mcp add` to keep the registration in the current workspace. See [Autohand Code](https://github.com/autohandai/code-cli/) for current CLI details.
+
 ## Configuration
 Set the following environment variables:
 ```bash
