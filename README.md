@@ -2,6 +2,8 @@
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/mysql-mcp-server)](https://pypi.org/project/mysql-mcp-server/)
 [![AgentAudit Safe](https://img.shields.io/badge/AgentAudit-safe-brightgreen)](https://www.agentaudit.dev/packages/mysql-mcp-server)
 # MySQL MCP Server
+
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fdesigncomputer%2Fmysql_mcp_server.svg)](https://mcptoplist.com/server/glama%2Fdesigncomputer%2Fmysql_mcp_server)
 A Model Context Protocol (MCP) implementation that enables secure interaction with MySQL databases. This server component facilitates communication between AI applications (hosts/clients) and MySQL databases, making database exploration and analysis safer and more structured through a controlled interface.
 
 > **Note**: MySQL MCP Server supports both standard input/output (STDIO) and Streamable HTTP (SSE) transport modes. The SSE mode is recommended for remote/self-hosted deployments.
