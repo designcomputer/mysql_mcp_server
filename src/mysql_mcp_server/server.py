@@ -34,6 +34,39 @@ logger = logging.getLogger("mysql_mcp_server")
 # System databases that are typically filtered out from resource listings.
 SYSTEM_DATABASES = {'information_schema', 'mysql', 'performance_schema', 'sys'}
 
+# Keep the default names stable while allowing multiple server instances to be
+# registered by the same MCP client without tool-name collisions.  The prefix
+# is read for each protocol request so test clients and long-lived processes
+# can configure it before discovery; a configured prefix applies to both
+# ``list_tools`` and ``call_tool``.
+_BASE_TOOL_NAMES = frozenset({"execute_sql", "get_schema_info", "get_table_sample"})
+_TOOL_NAME_PREFIX_ENV = "TOOL_NAME_PREFIX"
+
+
+def _tool_name_prefix() -> str:
+    """Return and validate the optional prefix used for exposed tool names."""
+    prefix = os.getenv(_TOOL_NAME_PREFIX_ENV, "")
+    if prefix and not re.fullmatch(r"[A-Za-z0-9_-]+", prefix):
+        raise ValueError(
+            f"{_TOOL_NAME_PREFIX_ENV} may contain only letters, numbers, '_' or '-'")
+    return prefix
+
+
+def _tool_name(base_name: str) -> str:
+    """Return the protocol-facing name for an internal tool name."""
+    if base_name not in _BASE_TOOL_NAMES:
+        raise ValueError(f"Unknown base tool name: {base_name}")
+    return f"{_tool_name_prefix()}{base_name}"
+
+
+def _resolve_tool_name(exposed_name: str) -> Optional[str]:
+    """Map a protocol-facing name back to its internal dispatch name."""
+    prefix = _tool_name_prefix()
+    if prefix:
+        names = {_tool_name(base_name): base_name for base_name in _BASE_TOOL_NAMES}
+        return names.get(exposed_name)
+    return exposed_name if exposed_name in _BASE_TOOL_NAMES else None
+
 def validate_identifier(name: str) -> str:
     """
     Validate a MySQL identifier (table or database name) to prevent SQL injection.
@@ -294,9 +327,12 @@ async def list_tools() -> list[Tool]:
     """
     Defines the tools available to AI agents via this MCP server.
     """
+    execute_name = _tool_name("execute_sql")
+    schema_name = _tool_name("get_schema_info")
+    sample_name = _tool_name("get_table_sample")
     return [
         Tool(
-            name="execute_sql",
+            name=execute_name,
             description=(
                 "Execute a SQL statement against the MySQL server. "
                 "Use for SELECT, DML (INSERT/UPDATE/DELETE), SHOW, DESCRIBE, and ad-hoc queries. "
@@ -320,7 +356,7 @@ async def list_tools() -> list[Tool]:
             )
         ),
         Tool(
-            name="get_schema_info",
+            name=schema_name,
             description=(
                 "Get column metadata for a table or all tables in the configured database: "
                 "column names, data types, nullability, default values, and comments. "
@@ -344,10 +380,10 @@ async def list_tools() -> list[Tool]:
             )
         ),
         Tool(
-            name="get_table_sample",
+            name=sample_name,
             description=(
                 "Fetch a small sample of rows from a table to understand its data format and content. "
-                "Use alongside get_schema_info before writing complex queries. "
+                f"Use alongside {schema_name} before writing complex queries. "
                 "Accepts bare table names (uses MYSQL_DATABASE) or database.table for cross-database lookups."
             ),
             inputSchema={
@@ -379,8 +415,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """
     try:
         logger.info(f"Calling tool: {name} with arguments: {arguments}")
+        base_name = _resolve_tool_name(name)
 
-        if name == "execute_sql":
+        if base_name == "execute_sql":
             query = arguments.get("query")
             if not query:
                 raise ValueError("Query is required")
@@ -391,7 +428,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 ))]
             return await run_query(query)
 
-        elif name == "get_schema_info":
+        elif base_name == "get_schema_info":
             table_name = arguments.get("table_name")
             if table_name:
                 db, tbl = parse_table_arg(table_name)
@@ -401,7 +438,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 query = "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION"
             return await run_query(query)
 
-        elif name == "get_table_sample":
+        elif base_name == "get_table_sample":
             db, tbl = parse_table_arg(arguments.get("table_name"))
             limit = min(arguments.get("limit", 5), 20)
             table_ref = f"`{db}`.`{tbl}`" if db else f"`{tbl}`"
@@ -446,6 +483,8 @@ async def list_prompts() -> list[Prompt]:
 
 @app.get_prompt()
 async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
+    schema_name = _tool_name("get_schema_info")
+    sample_name = _tool_name("get_table_sample")
     if name == "explore_database":
         return GetPromptResult(
             description="Systematic database exploration workflow",
@@ -456,9 +495,9 @@ async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
                         "Explore this MySQL database systematically:\n\n"
                         "1. Call list_resources to discover available tables "
                         "(or databases when MYSQL_DATABASE is not set).\n"
-                        "2. Call get_schema_info with no table_name to see all table structures at once, "
+                        f"2. Call {schema_name} with no table_name to see all table structures at once, "
                         "or for each table of interest individually.\n"
-                        "3. Call get_table_sample on 2–3 representative tables to understand "
+                        f"3. Call {sample_name} on 2–3 representative tables to understand "
                         "data format and content.\n"
                         "4. Summarize: describe what each table stores, note relationships "
                         "(foreign keys, shared ID columns), and suggest 3–5 queries "
@@ -476,9 +515,9 @@ async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
                     role="user",
                     content=TextContent(type="text", text=(
                         f"Analyze the table `{table_name}`:\n\n"
-                        f"1. Call get_schema_info with table_name=\"{table_name}\" "
+                        f"1. Call {schema_name} with table_name=\"{table_name}\" "
                         "to retrieve column names, types, nullability, and comments.\n"
-                        f"2. Call get_table_sample with table_name=\"{table_name}\" "
+                        f"2. Call {sample_name} with table_name=\"{table_name}\" "
                         "to see representative rows.\n"
                         "3. Based on the schema and sample, provide:\n"
                         "   - A plain-English description of what this table stores\n"

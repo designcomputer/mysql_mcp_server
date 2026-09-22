@@ -2,6 +2,8 @@
 
 This document provides AI agents with context and examples on how to effectively use the tools provided by the MySQL MCP Server.
 
+The examples use the default tool names. When `TOOL_NAME_PREFIX` is configured, prepend that value to each tool name (for example, `prod_get_schema_info`).
+
 ## 1. Database & Table Discovery
 
 When first connecting to a database, you should discover what data is available.
