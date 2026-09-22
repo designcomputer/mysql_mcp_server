@@ -10,13 +10,62 @@ def test_server_initialization():
 
 
 @pytest.mark.asyncio
-async def test_list_tools():
+async def test_list_tools(monkeypatch):
     """Test that list_tools returns expected tools."""
+    monkeypatch.delenv("TOOL_NAME_PREFIX", raising=False)
     tools = await list_tools()
     assert len(tools) == 3
     assert any(t.name == "execute_sql" for t in tools)
     assert any(t.name == "get_schema_info" for t in tools)
     assert any(t.name == "get_table_sample" for t in tools)
+
+
+@pytest.mark.asyncio
+async def test_list_tools_applies_global_prefix(monkeypatch):
+    """A configured prefix namespaces all protocol-facing tool names."""
+    monkeypatch.setenv("TOOL_NAME_PREFIX", "prod_")
+
+    tools = await list_tools()
+
+    assert {tool.name for tool in tools} == {
+        "prod_execute_sql",
+        "prod_get_schema_info",
+        "prod_get_table_sample",
+    }
+
+
+@pytest.mark.asyncio
+async def test_call_tool_resolves_prefixed_name(monkeypatch):
+    """Prefixed names dispatch while legacy names are rejected when enabled."""
+    monkeypatch.setenv("TOOL_NAME_PREFIX", "prod_")
+
+    response = await call_tool("prod_execute_sql", {})
+    assert "Query is required" in response[0].text
+
+    legacy_response = await call_tool("execute_sql", {})
+    assert "Unknown tool" in legacy_response[0].text
+
+
+@pytest.mark.asyncio
+async def test_prefixed_names_are_used_in_workflow_prompt(monkeypatch):
+    """Workflow prompts refer to the names exposed by the configured instance."""
+    monkeypatch.setenv("TOOL_NAME_PREFIX", "prod_")
+
+    result = await get_prompt("explore_database", None)
+    text = result.messages[0].content.text
+
+    assert "prod_get_schema_info" in text
+    assert "prod_get_table_sample" in text
+    assert "Call get_schema_info" not in text
+
+
+@pytest.mark.asyncio
+async def test_tool_name_prefix_rejects_invalid_value(monkeypatch):
+    """Prefixes use a conservative character set suitable for MCP tool names."""
+    monkeypatch.setenv("TOOL_NAME_PREFIX", "prod prefix")
+
+    with pytest.raises(ValueError, match="TOOL_NAME_PREFIX"):
+        await list_tools()
 
 
 @pytest.mark.asyncio
