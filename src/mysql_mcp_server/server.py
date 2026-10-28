@@ -39,8 +39,11 @@ def validate_identifier(name: str) -> str:
     Validate a MySQL identifier (table or database name) to prevent SQL injection.
     Only allows alphanumeric characters, underscores, and dollar signs.
     """
-    if not re.match(r'^[a-zA-Z0-9_$]+$', name):
-        raise ValueError(f"Invalid identifier '{name}': only alphanumeric, underscore, and $ are allowed")
+    # fullmatch, not match with '$': '$' also matches before a trailing newline.
+    # The rejected value is not echoed back, so it can't inject markup into
+    # the tool result (Issue #102).
+    if not re.fullmatch(r'[a-zA-Z0-9_$]+', name):
+        raise ValueError("Invalid identifier: only alphanumeric, underscore, and $ are allowed")
     return name
 
 def parse_table_arg(name: str) -> Tuple[Optional[str], str]:
@@ -378,7 +381,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     Dispatches tool calls from AI agents to the appropriate implementation logic.
     """
     try:
-        logger.info(f"Calling tool: {name} with arguments: {arguments}")
+        # repr() escapes CR/LF so caller-supplied values can't forge log lines.
+        logger.info(f"Calling tool: {name!r} with arguments: {arguments!r}")
 
         if name == "execute_sql":
             query = arguments.get("query")
@@ -411,8 +415,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         else:
             raise ValueError(f"Unknown tool: {name}")
     except Exception as e:
-        logger.error(f"Error in call_tool: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Error in call_tool: {str(e)!r}")
+        logger.debug(traceback.format_exc())
         # Return the error as a TextContent so the client can display it.
         # This addresses Issue #50 where errors were not being reported clearly.
         return [TextContent(type="text", text=f"Error calling tool {name}: {str(e)}")]

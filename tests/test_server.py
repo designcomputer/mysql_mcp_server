@@ -130,6 +130,29 @@ async def test_get_prompt_unknown():
         await get_prompt("no_such_prompt", {})
 
 
+def test_validate_identifier_rejects_trailing_newline():
+    """A trailing newline must not slip past the end-of-string anchor."""
+    with pytest.raises(ValueError, match="Invalid identifier"):
+        validate_identifier("users\n")
+
+
+def test_validate_identifier_does_not_echo_input():
+    """The rejected value is not reflected in the error message (Issue #102)."""
+    with pytest.raises(ValueError) as exc_info:
+        validate_identifier("<img src=x onerror=alert(1)>")
+    assert "<img" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_call_tool_does_not_echo_rejected_table_name():
+    """Tool errors for a rejected table_name don't carry the raw value (Issue #102)."""
+    for tool in ("get_schema_info", "get_table_sample"):
+        response = await call_tool(tool, {"table_name": "<b>{{7*7}}</b>"})
+        assert "Invalid identifier" in response[0].text
+        assert "<b>" not in response[0].text
+        assert "{{7*7}}" not in response[0].text
+
+
 def test_parse_table_arg_bare():
     """Bare table name returns (None, name)."""
     assert parse_table_arg("users") == (None, "users")
