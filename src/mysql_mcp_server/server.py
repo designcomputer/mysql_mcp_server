@@ -36,19 +36,24 @@ SYSTEM_DATABASES = {'information_schema', 'mysql', 'performance_schema', 'sys'}
 
 # Keep the default names stable while allowing multiple server instances to be
 # registered by the same MCP client without tool-name collisions.  The prefix
-# is read for each protocol request so test clients and long-lived processes
-# can configure it before discovery; a configured prefix applies to both
-# ``list_tools`` and ``call_tool``.
+# is read and validated once at startup (see ``main``); request handlers only
+# use the module-level value.
 _BASE_TOOL_NAMES = frozenset({"execute_sql", "get_schema_info", "get_table_sample"})
 _TOOL_NAME_PREFIX_ENV = "TOOL_NAME_PREFIX"
+# Clients such as Claude require tool names to match ^[a-zA-Z0-9_-]{1,64}$.
+# The longest base name is get_table_sample (16 chars), leaving 48 for the prefix.
+_TOOL_NAME_PREFIX_MAX_LENGTH = 48
+TOOL_NAME_PREFIX = ""
 
 
-def _tool_name_prefix() -> str:
-    """Return and validate the optional prefix used for exposed tool names."""
+def load_tool_name_prefix() -> str:
+    """Read and validate the optional tool-name prefix from the environment."""
     prefix = os.getenv(_TOOL_NAME_PREFIX_ENV, "")
-    if prefix and not re.fullmatch(r"[A-Za-z0-9_-]+", prefix):
+    if prefix and not re.fullmatch(
+            rf"[A-Za-z0-9_-]{{1,{_TOOL_NAME_PREFIX_MAX_LENGTH}}}", prefix):
         raise ValueError(
-            f"{_TOOL_NAME_PREFIX_ENV} may contain only letters, numbers, '_' or '-'")
+            f"{_TOOL_NAME_PREFIX_ENV} must be at most {_TOOL_NAME_PREFIX_MAX_LENGTH} "
+            "characters and contain only letters, numbers, '_' or '-'")
     return prefix
 
 
@@ -56,13 +61,12 @@ def _tool_name(base_name: str) -> str:
     """Return the protocol-facing name for an internal tool name."""
     if base_name not in _BASE_TOOL_NAMES:
         raise ValueError(f"Unknown base tool name: {base_name}")
-    return f"{_tool_name_prefix()}{base_name}"
+    return f"{TOOL_NAME_PREFIX}{base_name}"
 
 
 def _resolve_tool_name(exposed_name: str) -> Optional[str]:
     """Map a protocol-facing name back to its internal dispatch name."""
-    prefix = _tool_name_prefix()
-    if prefix:
+    if TOOL_NAME_PREFIX:
         names = {_tool_name(base_name): base_name for base_name in _BASE_TOOL_NAMES}
         return names.get(exposed_name)
     return exposed_name if exposed_name in _BASE_TOOL_NAMES else None
@@ -596,6 +600,8 @@ async def main():
     Main entry point for the MCP server.
     Supports both STDIO (default) and SSE (HTTP) transport modes.
     """
+    global TOOL_NAME_PREFIX
+    TOOL_NAME_PREFIX = load_tool_name_prefix()
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
     if transport == "sse":
         await _run_sse_server()

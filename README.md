@@ -97,7 +97,7 @@ The file is read from the **process working directory** (and parent directories)
 
 ### Multiple server instances
 
-When more than one MySQL MCP Server instance is registered in the same client, set a different `TOOL_NAME_PREFIX` for each instance (for example, `prod_` and `staging_`). The prefix is added to all three tool names and to the tool references in the built-in workflow prompts. It may contain letters, numbers, `_`, and `-`; leaving it empty preserves the default names shown below.
+When more than one MySQL MCP Server instance is registered in the same client, set a different `TOOL_NAME_PREFIX` for each instance (for example, `prod_` and `staging_`). The prefix is added to all three tool names and to the tool references in the built-in workflow prompts. It may contain letters, numbers, `_`, and `-`, and must be at most 48 characters so every tool name stays within the 64-character `^[a-zA-Z0-9_-]{1,64}$` limit some clients (such as Claude) enforce. Leaving it empty preserves the default names shown below. The prefix is read and validated once at startup, so an invalid value stops the server immediately with a clear error. Prompt names (`explore_database`, `analyze_table`) are not prefixed.
 
 ### Multi-Database Mode
 When `MYSQL_DATABASE` is not set, the server operates in multi-database mode:

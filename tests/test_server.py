@@ -1,7 +1,10 @@
+import re
+
 import pytest
 from unittest.mock import patch, MagicMock
 from mysql_mcp_server.server import app, list_tools, list_prompts, get_prompt, list_resources, read_resource, call_tool, validate_identifier, parse_table_arg, get_db_config
 from pydantic import AnyUrl
+from mysql_mcp_server import server
 
 
 def test_server_initialization():
@@ -12,7 +15,7 @@ def test_server_initialization():
 @pytest.mark.asyncio
 async def test_list_tools(monkeypatch):
     """Test that list_tools returns expected tools."""
-    monkeypatch.delenv("TOOL_NAME_PREFIX", raising=False)
+    monkeypatch.setattr(server, "TOOL_NAME_PREFIX", "")
     tools = await list_tools()
     assert len(tools) == 3
     assert any(t.name == "execute_sql" for t in tools)
@@ -23,7 +26,7 @@ async def test_list_tools(monkeypatch):
 @pytest.mark.asyncio
 async def test_list_tools_applies_global_prefix(monkeypatch):
     """A configured prefix namespaces all protocol-facing tool names."""
-    monkeypatch.setenv("TOOL_NAME_PREFIX", "prod_")
+    monkeypatch.setattr(server, "TOOL_NAME_PREFIX", "prod_")
 
     tools = await list_tools()
 
@@ -37,7 +40,7 @@ async def test_list_tools_applies_global_prefix(monkeypatch):
 @pytest.mark.asyncio
 async def test_call_tool_resolves_prefixed_name(monkeypatch):
     """Prefixed names dispatch while legacy names are rejected when enabled."""
-    monkeypatch.setenv("TOOL_NAME_PREFIX", "prod_")
+    monkeypatch.setattr(server, "TOOL_NAME_PREFIX", "prod_")
 
     response = await call_tool("prod_execute_sql", {})
     assert "Query is required" in response[0].text
@@ -49,7 +52,7 @@ async def test_call_tool_resolves_prefixed_name(monkeypatch):
 @pytest.mark.asyncio
 async def test_prefixed_names_are_used_in_workflow_prompt(monkeypatch):
     """Workflow prompts refer to the names exposed by the configured instance."""
-    monkeypatch.setenv("TOOL_NAME_PREFIX", "prod_")
+    monkeypatch.setattr(server, "TOOL_NAME_PREFIX", "prod_")
 
     result = await get_prompt("explore_database", None)
     text = result.messages[0].content.text
@@ -60,12 +63,69 @@ async def test_prefixed_names_are_used_in_workflow_prompt(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_tool_name_prefix_rejects_invalid_value(monkeypatch):
-    """Prefixes use a conservative character set suitable for MCP tool names."""
-    monkeypatch.setenv("TOOL_NAME_PREFIX", "prod prefix")
+async def test_handlers_do_not_reread_prefix_from_environment(monkeypatch):
+    """The prefix is read once at startup, not on every request."""
+    monkeypatch.setattr(server, "TOOL_NAME_PREFIX", "prod_")
+    monkeypatch.setenv("TOOL_NAME_PREFIX", "not valid!")
+
+    tools = await list_tools()
+
+    assert "prod_execute_sql" in {tool.name for tool in tools}
+
+
+@pytest.mark.parametrize("value", ["", "prod_", "a-B_9", "p" * 48])
+def test_load_tool_name_prefix_accepts_valid_values(monkeypatch, value):
+    monkeypatch.setenv("TOOL_NAME_PREFIX", value)
+    assert server.load_tool_name_prefix() == value
+
+
+def test_load_tool_name_prefix_defaults_to_empty(monkeypatch):
+    monkeypatch.delenv("TOOL_NAME_PREFIX", raising=False)
+    assert server.load_tool_name_prefix() == ""
+
+
+@pytest.mark.parametrize("value", ["prod prefix", "prod.", "p" * 49])
+def test_load_tool_name_prefix_rejects_invalid_values(monkeypatch, value):
+    """Prefixes must keep every tool name within ^[a-zA-Z0-9_-]{1,64}$."""
+    monkeypatch.setenv("TOOL_NAME_PREFIX", value)
+    with pytest.raises(ValueError, match="TOOL_NAME_PREFIX"):
+        server.load_tool_name_prefix()
+
+
+@pytest.mark.asyncio
+async def test_max_prefix_keeps_all_tool_names_client_compatible(monkeypatch):
+    monkeypatch.setattr(server, "TOOL_NAME_PREFIX", "p" * 48)
+    tools = await list_tools()
+    for tool in tools:
+        assert re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", tool.name), tool.name
+
+
+@pytest.mark.asyncio
+async def test_main_fails_fast_on_invalid_prefix(monkeypatch):
+    """A bad prefix stops startup before any transport is started."""
+    monkeypatch.setattr(server, "TOOL_NAME_PREFIX", "")
+    monkeypatch.setenv("TOOL_NAME_PREFIX", "bad prefix")
+    started = MagicMock()
+    monkeypatch.setattr(server, "_run_stdio_server", started)
+    monkeypatch.setattr(server, "_run_sse_server", started)
 
     with pytest.raises(ValueError, match="TOOL_NAME_PREFIX"):
-        await list_tools()
+        await server.main()
+    started.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_main_applies_prefix_from_environment(monkeypatch):
+    monkeypatch.setattr(server, "TOOL_NAME_PREFIX", "")
+    monkeypatch.setenv("TOOL_NAME_PREFIX", "staging_")
+    monkeypatch.setenv("MCP_TRANSPORT", "stdio")
+
+    async def fake_run():
+        return None
+
+    monkeypatch.setattr(server, "_run_stdio_server", fake_run)
+    await server.main()
+    assert server.TOOL_NAME_PREFIX == "staging_"
 
 
 @pytest.mark.asyncio
