@@ -34,6 +34,43 @@ logger = logging.getLogger("mysql_mcp_server")
 # System databases that are typically filtered out from resource listings.
 SYSTEM_DATABASES = {'information_schema', 'mysql', 'performance_schema', 'sys'}
 
+# Keep the default names stable while allowing multiple server instances to be
+# registered by the same MCP client without tool-name collisions.  The prefix
+# is read and validated once at startup (see ``main``); request handlers only
+# use the module-level value.
+_BASE_TOOL_NAMES = frozenset({"execute_sql", "get_schema_info", "get_table_sample"})
+_TOOL_NAME_PREFIX_ENV = "TOOL_NAME_PREFIX"
+# Clients such as Claude require tool names to match ^[a-zA-Z0-9_-]{1,64}$.
+# The longest base name is get_table_sample (16 chars), leaving 48 for the prefix.
+_TOOL_NAME_PREFIX_MAX_LENGTH = 48
+TOOL_NAME_PREFIX = ""
+
+
+def load_tool_name_prefix() -> str:
+    """Read and validate the optional tool-name prefix from the environment."""
+    prefix = os.getenv(_TOOL_NAME_PREFIX_ENV, "")
+    if prefix and not re.fullmatch(
+            rf"[A-Za-z0-9_-]{{1,{_TOOL_NAME_PREFIX_MAX_LENGTH}}}", prefix):
+        raise ValueError(
+            f"{_TOOL_NAME_PREFIX_ENV} must be at most {_TOOL_NAME_PREFIX_MAX_LENGTH} "
+            "characters and contain only letters, numbers, '_' or '-'")
+    return prefix
+
+
+def _tool_name(base_name: str) -> str:
+    """Return the protocol-facing name for an internal tool name."""
+    if base_name not in _BASE_TOOL_NAMES:
+        raise ValueError(f"Unknown base tool name: {base_name}")
+    return f"{TOOL_NAME_PREFIX}{base_name}"
+
+
+def _resolve_tool_name(exposed_name: str) -> Optional[str]:
+    """Map a protocol-facing name back to its internal dispatch name."""
+    if TOOL_NAME_PREFIX:
+        names = {_tool_name(base_name): base_name for base_name in _BASE_TOOL_NAMES}
+        return names.get(exposed_name)
+    return exposed_name if exposed_name in _BASE_TOOL_NAMES else None
+
 def validate_identifier(name: str) -> str:
     """
     Validate a MySQL identifier (table or database name) to prevent SQL injection.
@@ -297,9 +334,12 @@ async def list_tools() -> list[Tool]:
     """
     Defines the tools available to AI agents via this MCP server.
     """
+    execute_name = _tool_name("execute_sql")
+    schema_name = _tool_name("get_schema_info")
+    sample_name = _tool_name("get_table_sample")
     return [
         Tool(
-            name="execute_sql",
+            name=execute_name,
             description=(
                 "Execute a SQL statement against the MySQL server. "
                 "Use for SELECT, DML (INSERT/UPDATE/DELETE), SHOW, DESCRIBE, and ad-hoc queries. "
@@ -323,7 +363,7 @@ async def list_tools() -> list[Tool]:
             )
         ),
         Tool(
-            name="get_schema_info",
+            name=schema_name,
             description=(
                 "Get column metadata for a table or all tables in the configured database: "
                 "column names, data types, nullability, default values, and comments. "
@@ -347,10 +387,10 @@ async def list_tools() -> list[Tool]:
             )
         ),
         Tool(
-            name="get_table_sample",
+            name=sample_name,
             description=(
                 "Fetch a small sample of rows from a table to understand its data format and content. "
-                "Use alongside get_schema_info before writing complex queries. "
+                f"Use alongside {schema_name} before writing complex queries. "
                 "Accepts bare table names (uses MYSQL_DATABASE) or database.table for cross-database lookups."
             ),
             inputSchema={
@@ -383,8 +423,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
         # repr() escapes CR/LF so caller-supplied values can't forge log lines.
         logger.info(f"Calling tool: {name!r} with arguments: {arguments!r}")
+        base_name = _resolve_tool_name(name)
 
-        if name == "execute_sql":
+        if base_name == "execute_sql":
             query = arguments.get("query")
             if not query:
                 raise ValueError("Query is required")
@@ -395,7 +436,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 ))]
             return await run_query(query)
 
-        elif name == "get_schema_info":
+        elif base_name == "get_schema_info":
             table_name = arguments.get("table_name")
             if table_name:
                 db, tbl = parse_table_arg(table_name)
@@ -405,7 +446,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 query = "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION"
             return await run_query(query)
 
-        elif name == "get_table_sample":
+        elif base_name == "get_table_sample":
             db, tbl = parse_table_arg(arguments.get("table_name"))
             limit = min(arguments.get("limit", 5), 20)
             table_ref = f"`{db}`.`{tbl}`" if db else f"`{tbl}`"
@@ -450,6 +491,8 @@ async def list_prompts() -> list[Prompt]:
 
 @app.get_prompt()
 async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
+    schema_name = _tool_name("get_schema_info")
+    sample_name = _tool_name("get_table_sample")
     if name == "explore_database":
         return GetPromptResult(
             description="Systematic database exploration workflow",
@@ -460,9 +503,9 @@ async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
                         "Explore this MySQL database systematically:\n\n"
                         "1. Call list_resources to discover available tables "
                         "(or databases when MYSQL_DATABASE is not set).\n"
-                        "2. Call get_schema_info with no table_name to see all table structures at once, "
+                        f"2. Call {schema_name} with no table_name to see all table structures at once, "
                         "or for each table of interest individually.\n"
-                        "3. Call get_table_sample on 2–3 representative tables to understand "
+                        f"3. Call {sample_name} on 2–3 representative tables to understand "
                         "data format and content.\n"
                         "4. Summarize: describe what each table stores, note relationships "
                         "(foreign keys, shared ID columns), and suggest 3–5 queries "
@@ -480,9 +523,9 @@ async def get_prompt(name: str, arguments: dict | None) -> GetPromptResult:
                     role="user",
                     content=TextContent(type="text", text=(
                         f"Analyze the table `{table_name}`:\n\n"
-                        f"1. Call get_schema_info with table_name=\"{table_name}\" "
+                        f"1. Call {schema_name} with table_name=\"{table_name}\" "
                         "to retrieve column names, types, nullability, and comments.\n"
-                        f"2. Call get_table_sample with table_name=\"{table_name}\" "
+                        f"2. Call {sample_name} with table_name=\"{table_name}\" "
                         "to see representative rows.\n"
                         "3. Based on the schema and sample, provide:\n"
                         "   - A plain-English description of what this table stores\n"
@@ -557,6 +600,8 @@ async def main():
     Main entry point for the MCP server.
     Supports both STDIO (default) and SSE (HTTP) transport modes.
     """
+    global TOOL_NAME_PREFIX
+    TOOL_NAME_PREFIX = load_tool_name_prefix()
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
     if transport == "sse":
         await _run_sse_server()

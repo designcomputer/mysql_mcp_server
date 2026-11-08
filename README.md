@@ -49,6 +49,9 @@ MYSQL_USER=your_username
 MYSQL_PASSWORD=your_password
 MYSQL_DATABASE=your_database # Optional: Omit for multi-database mode
 
+# Optional: namespace tool names when running multiple instances in one MCP client
+TOOL_NAME_PREFIX=prod_
+
 # Advanced Configuration
 MYSQL_SSL_MODE=DISABLED  # DISABLED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY
 MYSQL_CONNECT_TIMEOUT=10 # Timeout in seconds
@@ -92,6 +95,10 @@ The file is read from the **process working directory** (and parent directories)
 
 > ⚠️ **Claude Code / Claude Desktop:** these hosts launch the server from their own working directory, so the project's `.env` will **not** be found and you'll see `Missing required database configuration`. Put your `MYSQL_*` values in the `env` block of the MCP config (shown in the Usage section below) rather than relying on `.env`.
 
+### Multiple server instances
+
+When more than one MySQL MCP Server instance is registered in the same client, set a different `TOOL_NAME_PREFIX` for each instance (for example, `prod_` and `staging_`). The prefix is added to all three tool names and to the tool references in the built-in workflow prompts. It may contain letters, numbers, `_`, and `-`, and must be at most 48 characters so every tool name stays within the 64-character `^[a-zA-Z0-9_-]{1,64}$` limit some clients (such as Claude) enforce. Leaving it empty preserves the default names shown below. The prefix is read and validated once at startup, so an invalid value stops the server immediately with a clear error. Prompt names (`explore_database`, `analyze_table`) are not prefixed.
+
 ### Multi-Database Mode
 When `MYSQL_DATABASE` is not set, the server operates in multi-database mode:
 - `list_resources` returns all user databases (system databases are filtered out)
@@ -99,6 +106,8 @@ When `MYSQL_DATABASE` is not set, the server operates in multi-database mode:
 - **Note:** Only single SQL statements are supported. Multi-statement queries (e.g., `USE db; SELECT ...`) are not supported.
 
 ## Available Tools
+
+The names below are the defaults. If `TOOL_NAME_PREFIX` is set, prepend that value when calling the tools (for example, `prod_execute_sql`).
 
 ### `execute_sql`
 Executes any standard SQL query.
