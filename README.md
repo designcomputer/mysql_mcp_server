@@ -8,7 +8,7 @@ A Model Context Protocol (MCP) implementation that enables secure interaction wi
 
 ## Deployment options
 - **Hosted** — [Fronteir AI](https://fronteir.ai/mcp/designcomputer-mysql-mcp-server) runs the server for you; no local setup required.
-- **Local** — [Smithery](https://smithery.ai/server/designcomputer/mysql-mcp-server) installs and runs the server on your own machine.
+- **Local** — install from PyPI and run the server on your own machine (see [Installation](#installation)).
 
 ## Features
 - List available MySQL tables as resources
@@ -26,12 +26,6 @@ A Model Context Protocol (MCP) implementation that enables secure interaction wi
 ### Manual Installation
 ```bash
 pip install mysql-mcp-server
-```
-
-### Installing via Smithery
-To install MySQL MCP Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/designcomputer/mysql-mcp-server):
-```bash
-npx -y @smithery/cli install designcomputer/mysql-mcp-server --client claude
 ```
 
 ### Installing via Claude Code CLI

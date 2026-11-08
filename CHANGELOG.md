@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-10-28
+
+### Security
+- **Reflected Identifier in Errors:** `validate_identifier` no longer echoes a rejected table or database name in its error, which `get_schema_info` and `get_table_sample` returned to the client verbatim. The check now uses `re.fullmatch`, so a trailing newline no longer passes (#102).
+- **Log Line Forging:** Tool names, arguments and errors are logged with `repr()` so CR/LF in caller-supplied values can't forge log lines. Full tracebacks are now logged at debug level (#102).
+
+### Documentation
+- Added Autohand Code CLI setup instructions (#93).
+- Removed the Smithery install option, since Smithery's MCP Proxy and managed identity shut down on October 31.
+
 ## [0.4.4] - 2026-07-30
 
 ### Fixed
