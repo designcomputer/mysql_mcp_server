@@ -40,6 +40,15 @@ autohand mcp add mysql env MYSQL_HOST=localhost MYSQL_PORT=3306 MYSQL_USER=your_
 
 Add `--scope project` after `mcp add` to keep the registration in the current workspace. See [Autohand Code](https://github.com/autohandai/code-cli/) for current CLI details.
 
+### Installing via Agent Add
+```bash
+npx -y agent-add --global --mcp '{"mysql":{"command":"uvx","args":["mysql_mcp_server"]}}'
+```
+
+Requires Node.js 18+ and [uv](https://docs.astral.sh/uv/). Set your client's `MYSQL_*` environment as described in [Configuration](#configuration), then select your MCP client when [Agent Add](https://github.com/pea3nut/agent-add) prompts you.
+
+Use `--global` for user-wide configuration; omit it for project scope where supported by the client.
+
 ## Configuration
 Set the following environment variables:
 ```bash
